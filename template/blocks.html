@@ -3,39 +3,66 @@
     <title>Zentra Explorer</title>
     <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body>
+<body class="bg-gray-50">
+    <svg class="hidden">
+        <defs>
+            <symbol id="icon-block" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </symbol>
+            <symbol id="icon-tx" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </symbol>
+        </defs>
+    </svg>
+
     {% include 'nav.html' %}
 
-    <div class="container mx-auto">
+    <div class="container mx-auto px-4">
         <div class="flex justify-start items-center">
-            <form action="/search" method="get" class="mt-4 mb-4 ml-4 bg-gray-800 p-2 rounded">
-                <input type="text" name="query" placeholder="Search by address, tx hash or block no" class="h-10 w-96 text-gray-800 bg-white border-gray-600 rounded p-2">
-                <button type="submit" class="h-10 bg-orange-500 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded">Search</button>
+            <form action="/goto" method="get" class="my-4">
+                <div class="flex">
+                    <input type="text" name="query" placeholder="Search by block hash, block no or tx hash" class="h-10 w-96 bg-white border border-gray-300 rounded-l p-2 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                    <button type="submit" class="h-10 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-r">Search</button>
+                </div>
             </form>
         </div>
     </div>
 
-    <div class="container mx-auto">
-        <div class="flex justify-between">
-            <div class="w-1/2 bg-white rounded p-4 border border-gray-300 my-4">
-                <h2 class="text-2xl font-bold">Latest Blocks</h2>
-                <ul>
+    <div class="container mx-auto px-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+                <h2 class="text-xl font-bold mb-4">Latest Blocks</h2>
+                <ul class="divide-y divide-gray-200">
                     {% for block_height, block_hash in handler.recent_blocks %}
-                    <li class="flex justify-between items-center py-4 border-b border-gray-200">
-                        <div style="background-image: url(/static/block.png); width: 43px; height: 42px;"></div>
-                        <div class="" style="margin: auto auto auto 5px;">{{ block_height }}</div>
-                        <div class=""><a href="/block?chain={{ handler.chain }}&blockhash={{ block_hash }}">{{ block_hash[:20] }}...{{ block_hash[-10:] }}</a></div>
+                    <li class="py-4 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mr-3">
+                                <svg class="h-6 w-6 text-gray-500"><use xlink:href="#icon-block"></use></svg>
+                            </div>
+                            <div>
+                                <div class="text-sm text-gray-800">Block #{{ block_height }}</div>
+                            </div>
+                        </div>
+                        <div class="font-mono text-sm">
+                            <a href="/block?chain={{ handler.chain }}&blockhash={{ block_hash }}" class="text-orange-500 hover:text-orange-600">{{ block_hash[:12] }}...{{ block_hash[-12:] }}</a>
+                        </div>
                     </li>
                     {% end for %}
                 </ul>
             </div>
-            <div class="w-1/2 bg-white rounded p-4 border border-gray-300 mx-4 my-4">
-                <h2 class="text-2xl font-bold">Latest Transactions</h2>
-                <ul>
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+                <h2 class="text-xl font-bold mb-4">Latest Transactions</h2>
+                <ul class="divide-y divide-gray-200">
                     {% for tx_hash, block_hash in handler.recent_transactions %}
-                    <li class="flex justify-between items-center py-4 border-b border-gray-200">
-                        <div style="background-image: url(/static/tx.png); width: 43px; height: 42px;"></div>
-                        <div class=""><a href="/tx?chain={{ handler.chain }}&txhash={{ tx_hash }}">{{ tx_hash[:20] }}...{{ tx_hash[-10:] }}</a></div>
+                    <li class="py-4 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mr-3">
+                                <svg class="h-6 w-6 text-gray-500"><use xlink:href="#icon-tx"></use></svg>
+                            </div>
+                        </div>
+                        <div class="font-mono text-sm">
+                            <a href="/tx?chain={{ handler.chain }}&txhash={{ tx_hash }}" class="text-orange-500 hover:text-orange-600">{{ tx_hash[:12] }}...{{ tx_hash[-12:] }}</a>
+                        </div>
                     </li>
                     {% end for %}
                 </ul>

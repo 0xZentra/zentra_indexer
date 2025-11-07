@@ -1,22 +1,40 @@
 <html>
 <head>
-    <title>Transaction</title>
+    <title>Transaction Details - Zentra Explorer</title>
     <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body>
+<body class="bg-gray-50">
     {% include 'nav.html' %}
 
-    <div class="container mx-auto">
-        <div class="bg-white rounded p-4 border border-gray-300 my-4">
-            <h2 class="text-2xl font-bold">Transaction Details</h2>
-            Transaction Hash: {{ handler.tx_hash }}<br>
-            Transaction Index: {{ handler.tx_index }}<br>
-            From: <a href="/address?addr={{ handler.sender }}">{{ handler.sender }}</a><br><br>
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+            <h2 class="text-2xl font-bold mb-4">Transaction Details</h2>
+            <hr><br>
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="font-semibold">Transaction Hash:</div>
+                    <div class="md:col-span-3 font-mono text-gray-800 break-all">{{ handler.tx_hash }}</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="font-semibold">Transaction Index:</div>
+                    <div class="md:col-span-3 text-gray-800">{{ handler.tx_index }}</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="font-semibold">From:</div>
+                    <div class="md:col-span-3 font-mono">{{ handler.sender }}</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="font-semibold">Block Hash:</div>
+                    <div class="md:col-span-3 font-mono"><a href="/block?chain={{ handler.chain }}&blockhash={{ handler.block_hash }}" class="text-orange-500 hover:text-orange-600">{{ handler.block_hash }}</a></div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="font-semibold">Block Height:</div>
+                    <div class="md:col-span-3 text-gray-800">{{ handler.block_number }}</div>
+                </div>
+            </div>
 
-            Block Hash: <a href="/block?chain={{ handler.chain }}&blockhash={{ handler.block_hash }}">{{ handler.block_hash }}</a><br>
-            Block Height: {{ handler.block_number }}<br><br>
-            <pre style="white-space: pre-wrap; word-break: break-all; line-break: anywhere;">{{ handler.value_json }}</pre>
-            <br><br>
+            <h3 class="text-xl font-bold mb-2 mt-6">Transaction Data</h3>
+            <pre class="bg-gray-100 p-4 rounded-md text-sm" style="white-space: pre-wrap; word-break: break-all;">{{ handler.value_json }}</pre>
         </div>
     </div>
 

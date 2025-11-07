@@ -14,57 +14,30 @@ import requests
 import setting
 
 
-CHAIN_NAME = 'op'
+CHAIN_NAME = 'base'
 
-# OP_PURCHASE_CONTRACT = '0xaEa9a28e079CcFD6Be1AB999395265d42cdE315F' # OP old
-# OP_PURCHASE_CONTRACT = '0x7CdFB1fbf7d4E314E6c54577781DC7A7B00f2C9d' # OP USDT Purchase
-# if '-d' in sys.argv:
-#     OP_PURCHASE_CONTRACT = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0' # hardhat
 
-OP_PURCHASE_CONTRACTS = ['0xf3277Ecd65450BeFe656961B9Bfa25c3f1933EDB', '0x3F0f5bcC6a001C004A1C6AE2dd4151De0f513294'] # OP USDT Purchase
+PROVIDER_HOST1 = 'https://base-sepolia.infura.io/v3/YOUR_KEY'
+PROVIDER_HOST2 = 'https://base-sepolia.infura.io/v3/YOUR_KEY'
+PROVIDER_HOST3 = 'https://base-sepolia.infura.io/v3/YOUR_KEY'
 
-PROVIDER_HOST1 = 'https://optimism-mainnet.infura.io/v3/YOUR_KEY'
-PROVIDER_HOST2 = 'https://optimism-mainnet.infura.io/v3/YOUR_KEY'
-PROVIDER_HOST3 = 'https://optimism-mainnet.infura.io/v3/YOUR_KEY'
-PROVIDER_HOST4 = 'https://distinguished-sleek-rain.optimism.quiknode.pro/YOUR_KEY'
 
 if '-d' in sys.argv:
-    OP_PURCHASE_CONTRACTS = ['0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0', '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'] # hardhat
-    PROVIDER_HOST4 = 'http://127.0.0.1:8545'
+    PROVIDER_HOST1 = 'http://127.0.0.1:8545'
+    PROVIDER_HOST2 = 'http://127.0.0.1:8545'
+    PROVIDER_HOST3 = 'http://127.0.0.1:8545'
 
-#w3 = web3.Web3(web3.Web3.HTTPProvider('https://mainnet.infura.io/v3/YOUR_KEY'))
 w31 = web3.Web3(web3.Web3.HTTPProvider(PROVIDER_HOST1))
 w32 = web3.Web3(web3.Web3.HTTPProvider(PROVIDER_HOST2))
 w33 = web3.Web3(web3.Web3.HTTPProvider(PROVIDER_HOST3))
-w34 = web3.Web3(web3.Web3.HTTPProvider(PROVIDER_HOST4))
 
-# w3 = web3.Web3(web3.Web3.WebsocketProvider(PROVIDER_WS))
 w31.middleware_onion.inject(web3.middleware.geth_poa_middleware, layer=0)
 w32.middleware_onion.inject(web3.middleware.geth_poa_middleware, layer=0)
 w33.middleware_onion.inject(web3.middleware.geth_poa_middleware, layer=0)
-w34.middleware_onion.inject(web3.middleware.geth_poa_middleware, layer=0)
 
-
-HANDLE_LETTERS = 'abcdefghijklmnopqrstuvwxyz0123456789_'
-
-def int2handle(handleint):
-    v = handleint
-    r = []
-    for i in range(41, 0, -1):
-        h = v // (38**i)
-        # print(v, i, h, 37**i * h)
-        if h:
-            # print(h)
-            r.append(HANDLE_LETTERS[h-1])
-            v = v - (38**i * h)
-            # print(v)
-            if v < 38:
-                # print(v)
-                r.append(HANDLE_LETTERS[v-1])
-    return ''.join(reversed(r))
 
 def fetch_block(height):
-    global block_cache, w34, w31, w32, w33
+    global block_cache, w31, w32, w33
     # w3 = random.choice([w31, w32, w33])
     w3 = random.choice([w31, w32, w33])
     # if '-d' in sys.argv:
@@ -94,31 +67,9 @@ def process_block(block):
         # print(tx)
         # tx = w3.eth.get_transaction(tx_hash)
         # print(tx['transactionIndex'], tx['to'])
-        if tx['to'] in OP_PURCHASE_CONTRACTS:
-            # print(transaction)
-            while True:
-                try:
-                    tx_receipt = w3.eth.get_transaction_receipt(tx['hash'])
-                    break
-                except:
-                    print('retry tx receipt', tx['hash'])
-                    time.sleep(0.5)
 
-            print(tx_receipt['logs'])
-            for log in tx_receipt['logs']:
-                if log['address'] in OP_PURCHASE_CONTRACTS:
-                    print(log['topics'])
-                    print(log['data'])
-                    handleint, addr, price = eth_abi.decode(['uint256', 'address', 'uint256'], hexbytes.HexBytes(log['data']))
-                    print(handleint, addr, price)
-                    print(handleint, int2handle(handleint))
-                    handle = int2handle(handleint)
-
-                    info = {'sender': tx['from'].lower(), 'nonce': tx['nonce'], 'tx_hash': tx['hash'].hex(), 'invoke': 'event'}
-                    arg = {'p': 'zen', 'f': 'handle_purchase', 'a': [handle, addr, price]}
-                    blk['txs'].append([info, arg])
-
-        if tx['to'] == tx['from']:
+        to = tx['to'].lower() if tx['to'] else ''
+        if tx['to'] == tx['from'] or to == "0x00000000000000000000000000000000007a656e":
             print('tx hash', tx['hash'])
             while True:
                 try:
@@ -155,14 +106,11 @@ def process_block(block):
 
 
 block_cache = {}
-# from_block = 120070853 # first test contract deploy
-# from_block = 120071043 # first test contract purchase
-# from_block = 128737759 # 2024 dec 1st deploy
-from_block = 128740980 # first code deploy
+from_block = 27340916 # first code deploy
 if '-d' in sys.argv:
     from_block = 1
 
-req = requests.get('http://127.0.0.1:%s/height?chain=op' % setting.INDEXER_PORT)
+req = requests.get('http://127.0.0.1:%s/height?chain=base' % setting.INDEXER_PORT)
 height = req.json()['height']
 print(height)
 if height:

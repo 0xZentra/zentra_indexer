@@ -1,76 +1,61 @@
 <html>
 <head>
-    <title>State</title>
+    <title>State at Block {{ handler.block_number }} - Zentra Explorer</title>
     <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body>
+<body class="bg-gray-50">
     {% include 'nav.html' %}
 
-    <div class="container mx-auto">
-        <div class="bg-white rounded p-4 border border-gray-300 my-4">
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+            <h2 class="text-2xl font-bold">State at Block #{{ handler.block_number }}</h2>
+            <hr>
             <div class="flex justify-between my-4">
-                {% if handler.block_number > 1 %}
-                    <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number - 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Prev</a>
-                {% else %}
-                    <button disabled class="bg-gray-400 text-white font-bold py-2 px-4 rounded cursor-not-allowed">Previous</button>
-                {% end if %}
+                <div class="flex-1 text-left">
+                    {% if handler.block_number > 1 %}
+                        <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number - 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Prev</a>
+                    {% else %}
+                        <a class="bg-gray-400 text-white font-bold py-2 px-4 rounded cursor-not-allowed">Prev</a>
+                    {% end if %}
+                        <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number + 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Next</a>
+                </div>
     
-                <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number + 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Next</a>
+                <a href="/state?chain={{ handler.chain }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Latest</a>
             </div>
-
-            <h2 class="text-2xl font-bold">State Details</h2>
             <br>
-            Block Number: {{ handler.block_number }}<br><br>
 
+            <div class="space-y-2">
             {% for i in handler.state_keys %}
-            <div>
-                <button class="show_value">▷</button>
-                <button class="hide_value">▼</button>
-                <span class="{{ '' if handler.state_values[i][0] == handler.block_number else 'text-gray-400' }}">{{ i }}</span>
-                <span class="rounded bg-gray-400 px-1">{{ handler.state_values[i][0] }}</span><br>
-                <div class="value_content mx-4">
-                    <code>
-                        {{ handler.state_values[i][1] }}
-                    </code>
+            <div class="border rounded-md p-3">
+                <div class="flex items-center justify-between cursor-pointer item-header">
+                    <div class="flex items-center">
+                        <span class="toggle-icon mr-2 text-orange-500">▷</span>
+                        <span class="font-mono text-sm {{ '' if handler.state_values[i][0] == handler.block_number else 'text-gray-400' }}">{{ i }}</span>
+                    </div>
+                    <span class="text-xs rounded bg-gray-200 px-2 py-1">{{ handler.state_values[i][0] }}</span>
+                </div>
+                <div class="value_content hidden mt-2 pl-6">
+                    <pre class="bg-gray-100 p-3 rounded-md text-sm break-all whitespace-pre-wrap"><code>{{ handler.state_values[i][1] }}</code></pre>
                 </div>
             </div>
             {% end for %}
+            </div>
         </div>
     </div>
 <script type="module">
-    // Hide all value divs initially
-    document.querySelectorAll('.value_content').forEach(div => {
-        div.style.display = 'none';
+document.querySelectorAll('.item-header').forEach(header => {
+    header.addEventListener('click', () => {
+        const content = header.nextElementSibling;
+        const icon = header.querySelector('.toggle-icon');
+        
+        content.classList.toggle('hidden');
+        if (content.classList.contains('hidden')) {
+            icon.textContent = '▷';
+        } else {
+            icon.textContent = '▼';
+        }
     });
-
-    // Hide all hide buttons initially
-    document.querySelectorAll('.hide_value').forEach(button => {
-        button.style.display = 'none';
-    });
-
-    // Add click handlers for show buttons
-    document.querySelectorAll('.show_value').forEach(button => {
-        button.addEventListener('click', e => {
-            const valueDiv = e.target.parentElement.querySelector('.value_content');
-            const hideButton = e.target.parentElement.querySelector('.hide_value');
-            
-            valueDiv.style.display = 'block';
-            e.target.style.display = 'none';
-            hideButton.style.display = 'inline';
-        });
-    });
-
-    // Add click handlers for hide buttons 
-    document.querySelectorAll('.hide_value').forEach(button => {
-        button.addEventListener('click', e => {
-            const valueDiv = e.target.parentElement.querySelector('.value_content');
-            const showButton = e.target.parentElement.querySelector('.show_value');
-            
-            valueDiv.style.display = 'none';
-            e.target.style.display = 'none';
-            showButton.style.display = 'inline';
-        });
-    });
+});
 </script>
 
 </body>

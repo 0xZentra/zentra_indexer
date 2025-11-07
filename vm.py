@@ -91,6 +91,8 @@ class VM:
         self.global_vars['tuple'] = tuple
         self.global_vars['range'] = range
         self.global_vars['len'] = len
+        self.global_vars['min'] = min
+        self.global_vars['max'] = max
         # self.global_vars['open'] = open
         self.global_vars['AssertionError'] = AssertionError
         self.native_vars.add(type)
@@ -102,6 +104,8 @@ class VM:
         self.native_vars.add(tuple)
         self.native_vars.add(range)
         self.native_vars.add(len)
+        self.native_vars.add(min)
+        self.native_vars.add(max)
 
         assert self.code.co_argcount == len(args)
         assert self.code.co_code
@@ -190,6 +194,26 @@ class VM:
 
         elif co_code[ctx.pc] == 0x9: # NOP
             # print('NOP')
+            ctx.pc += 2
+
+        elif co_code[ctx.pc] == 0xa: # UNARY_POSITIVE
+            # print('UNARY_POSITIVE', ctx.stack[-1])
+            ctx.stack.append(+ctx.stack.pop())
+            ctx.pc += 2
+
+        elif co_code[ctx.pc] == 0xb: # UNARY_NEGATIVE
+            # print('UNARY_NEGATIVE', ctx.stack[-1])
+            ctx.stack.append(-ctx.stack.pop())
+            ctx.pc += 2
+
+        elif co_code[ctx.pc] == 0xc: # UNARY_NOT
+            # print('UNARY_NOT', ctx.stack[-1])
+            ctx.stack.append(not ctx.stack.pop())
+            ctx.pc += 2
+
+        elif co_code[ctx.pc] == 0xf: # UNARY_INVERT
+            # print('UNARY_INVERT', ctx.stack[-1])
+            ctx.stack.append(~ctx.stack.pop())
             ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x13: # BINARY_POWER
@@ -578,7 +602,7 @@ class VM:
             code = ctx.stack.pop()
             func = types.FunctionType(code, self.global_vars, name)
             ctx.stack.append(func)
-            print('MAKE_FUNCTION', ctx.stack)
+            # print('MAKE_FUNCTION', ctx.stack)
             ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x85: # BUILD_SLICE
@@ -661,7 +685,9 @@ class VM:
         elif co_code[ctx.pc] == 0x9b: # FORMAT_VALUE
             format_string = ctx.stack.pop()
             val = ctx.stack.pop()
-            ctx.stack.append(format(val, format_string))
+            # ctx.stack.append(format(val, format_string))
+            ctx.stack.append(val)
+            ctx.stack.append(format_string)
             ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x9c: # BUILD_CONST_KEY_MAP

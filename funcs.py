@@ -91,7 +91,7 @@ def process(info, args):
     block_hash = info['block_hash']
     chain = info['chain']
     space.chain = chain
-    assert args['p'] == 'zen'
+    assert args['p'] == 'zentest2'
 
     fname = args.get('f', '')
     code = get('function', 'code', {}, fname)

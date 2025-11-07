@@ -41,12 +41,12 @@ for i in range(state_len):
         if key.startswith(k):
             print('key', key, 'value_json', value_json)
             key_value = tornado.escape.json_decode(value_json)
-            k2 = ('%s-%s-' % ('pow', key_value)).encode('utf8')
+            k2 = ('%s-%s-' % ('base', key_value)).encode('utf8')
             it2.seek(k2)
             for key2, value_json2 in it2:
                 if key2.startswith(k2):
                     # tree_cache[0][i] = key_value
-                    print('key_value', key_value, 'value_json2', value_json2)
+                    # print('key_value', key_value, 'value_json2', value_json2)
                     tree_cache[0][i] = hashlib.sha256(key_value.encode('utf8') + value_json2).hexdigest()
                 break
         break
@@ -69,6 +69,7 @@ for i in range(tree_height):
         if q in tree_cache[i]:
             qh = tree_cache[i][q]
             pair = sorted([ph, qh])
+            # tree_cache.setdefault(i+1, {})
             tree_cache[i+1][int(p/2)] = hashlib.sha256((pair[0] + pair[1]).encode('utf8')).hexdigest()
             break
         tree_cache[i+1][int(p/2)] = hashlib.sha256((tree_cache[i][p]).encode('utf8')).hexdigest()
@@ -140,7 +141,7 @@ def merge():
     global tree_cache
 
     # print('> merkle_roots', merkle_roots)
-    print('> tree_cache', tree_cache)
+    # print('> tree_cache', tree_cache)
     # print('> info', info)
     chain = info['chain']
     block_number = info['block_number']
@@ -179,7 +180,7 @@ def merge():
                     state_keys_updated.remove(k2)
             else:
                 global_state_space[addr] += len(value_json)
-                print('global_state_space', global_state_space)
+                # print('global_state_space', global_state_space)
 
                 state_keys_updated.add(k2)
                 if k2 in state_keys_removed:
@@ -192,10 +193,10 @@ def merge():
 
     keys_update = [] # step 1
     keys_append = [] # step 2
-    keys_remove = [] # step 3
+    # keys_remove = [] # step 3
     keys = list(state_keys_updated)
     keys.sort() # important
-    print('> keys', keys)
+    # print('> keys', keys)
 
     # print('> states', states[0])
     state_len = _get_state_len(chain)
@@ -220,7 +221,7 @@ def merge():
             # need to think
             keys_append.append(new_state_len)
             _addr, value = states[0][key]
-            print('value', _addr, value)
+            # print('value', _addr, value)
             keys_append_tuple.append((new_state_len, key, value))
             k = ('%s_state_idx-%s-%s' % (chain, key, reversed_block_no)).encode('utf8')
             global_state.put(k, tornado.escape.json_encode(new_state_len).encode('utf8'))
@@ -232,6 +233,10 @@ def merge():
             _addr, value = states[0][key]
             print('value', _addr, value)
             keys_update_tuple.append((key_idx, key, value))
+            k = ('%s_state_idx-%s-%s' % (chain, key, reversed_block_no)).encode('utf8')
+            global_state.put(k, tornado.escape.json_encode(key_idx).encode('utf8'))
+            k = ('%s_state_key-%s-%s' % (chain, key_idx, reversed_block_no)).encode('utf8')
+            global_state.put(k, tornado.escape.json_encode(key).encode('utf8'))
 
     k = ('%s_state_len-%s' % (chain, reversed_block_no)).encode('utf8')
     global_state.put(k, tornado.escape.json_encode(new_state_len).encode('utf8'))
@@ -250,7 +255,9 @@ def merge():
                 break
 
         if key_idx is not None:
-            keys_remove.append(key_idx)
+            # keys_remove.append(key_idx)
+            k = ('%s_state_key-%s-%s' % (chain, key_idx, reversed_block_no)).encode('utf8')
+            global_state.put(k, tornado.escape.json_encode(key).encode('utf8'))
             keys_remove_tuple.append((key_idx, key))
 
     tree_new = {0:{}}
@@ -272,7 +279,7 @@ def merge():
         # print('tree_capacity', tree_capacity)
         tree_height = int(math.log2(tree_capacity))
 
-    print('> tree_new', tree_new)
+    # print('> tree_new', tree_new)
     # calculate the merkle root
     for i in range(tree_height):
         tree_new[i+1] = {}
@@ -292,22 +299,23 @@ def merge():
             else:
                 tree_new[i+1][int(p/2)] = hashlib.sha256((tree_new[i][p]).encode('utf8')).hexdigest()
 
-    print('> tree_new2', tree_new)
-    print('> tree_cache', tree_cache)
+    # print('> tree_new2', tree_new)
+    # print('> tree_cache', tree_cache)
     for i in tree_new:
         tree_cache.setdefault(i, {})
     for i in tree_cache:
+        tree_new.setdefault(i, {})
         tree_cache[i].update(tree_new[i])
-    print('> tree_cache2', tree_cache)
+    # print('> tree_cache2', tree_cache)
 
     state_root = tree_new[tree_height][0]
     # print('> state_root', state_root)
     k = ('%s_state_root-%s' % (chain, reversed_block_no)).encode('utf8')
     global_state.put(k, tornado.escape.json_encode(state_root).encode('utf8'))
 
-    print('> keys_update', keys_update) # step 1
-    print('> keys_append', keys_append) # step 2
-    print('> keys_remove', keys_remove) # step 3
+    # print('> keys_update', keys_update) # step 1
+    # print('> keys_append', keys_append) # step 2
+    # print('> keys_remove', keys_remove) # step 3
 
     states = {}
     state_keys_updated = set()
@@ -327,7 +335,7 @@ def call(fn, params):
     print('info', info)
     global states
     print('states', states)
-    arg = {'p': 'zen', 'f': fn, 'a': params}
+    arg = {'p': 'zentest2', 'f': fn, 'a': params}
     funcs.process(info, arg)
 
 

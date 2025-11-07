@@ -29,10 +29,59 @@ global_state = database.get_conn()
 global_input = database.get_conn_tx()
 
 
+class OrderbookAPIHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+
+        base = self.get_argument('base').upper()
+        quote = self.get_argument('quote').upper()
+        space.info = {'chain': 'base'}
+
+        buy_start = get('trade', f'{base}_{quote}_buy_start', 1)
+        print(f'{base}_{quote}_buy_start')
+        print('buy_start', buy_start)
+        buys = []
+        while True:
+            buy = get('trade', f'{base}_{quote}_buy', [], str(buy_start))
+            print('buy', buy)
+            if not buy:
+                break
+            buys.append(buy)
+            if buy[4] is None:
+                break
+            buy_start = buy[4]
+
+        sell_start = get('trade', f'{base}_{quote}_sell_start', 1)
+        print(f'{base}_{quote}_sell_start')
+        print('sell_start', sell_start)
+        sells = []
+        while True:
+            sell = get('trade', f'{base}_{quote}_sell', [], str(sell_start))
+            print('sell', sell)
+            if not sell:
+                break
+            sells.append(sell)
+            if sell[4] is None:
+                break
+            sell_start = sell[4]
+
+        self.finish({
+            'buy_start': buy_start, 
+            'buys': buys,
+            'sell_start': sell_start, 
+            'sells': sells
+        })
+
+
 class GetLatestStateAPIHandler(tornado.web.RequestHandler):
     def get(self):
-        global global_state
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
 
+        global global_state
         prefix = self.get_argument('prefix')
         k = ('%s-' % prefix).encode('utf8')
         it = global_state.iteritems()
@@ -48,8 +97,11 @@ class GetLatestStateAPIHandler(tornado.web.RequestHandler):
 
 class QueryRecentStateAPIHandler(tornado.web.RequestHandler):
     def get(self):
-        global global_state
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
 
+        global global_state
         prefix = self.get_argument('prefix')
         k = ('%s-' % prefix).encode('utf8')
         it = global_state.iteritems()
@@ -67,7 +119,7 @@ class BlocksHandler(tornado.web.RequestHandler):
     def get(self):
         global global_state
         global global_input
-        self.chain = self.get_argument('chain', 'cto')
+        self.chain = self.get_argument('chain', 'base')
         assert self.chain in setting.chains
 
         it = global_input.iteritems()
@@ -104,17 +156,61 @@ class BlocksHandler(tornado.web.RequestHandler):
 
         self.render('template/blocks.html')
 
-class BlockHandler(tornado.web.RequestHandler):
+
+class BlocksHandler(tornado.web.RequestHandler):
     def get(self):
-        self.block_hash = self.get_argument('blockhash').replace('0x', '')
         global global_state
         global global_input
+        self.chain = self.get_argument('chain', 'base')
+        assert self.chain in setting.chains
+
         it = global_input.iteritems()
-        self.chain = self.get_argument('chain', 'cto')
+        it.seek(('%s-block-' % self.chain).encode('utf8'))
+        self.recent_blocks = []
+        c = 0
+        for key, value_json in it:
+            if not key.startswith(('%s-block-' % self.chain).encode('utf8')):
+                break
+            print('block1', key)
+            # self.write('%s %s<br>' % (key, value_json))
+            _, _, block_height, block_hash = key.decode('utf8').split('-')
+            self.recent_blocks.append([setting.REVERSED_NO-int(block_height), block_hash])
+            c += 1
+            if c >= 20:
+                break
+
+        c = 0
+        self.recent_transactions = []
+        for _block_number, block_hash in self.recent_blocks:
+            k = '%s-blocktx-%s-' % (self.chain, block_hash)
+            it.seek(k.encode('utf8'))
+            for key, value_json in it:
+                if not key.startswith(k.encode('utf8')):
+                    break
+                print('block2', key)
+                _, _, block_hash, tx_hash  = key.decode('utf8').split('-')
+                self.recent_transactions.append([tx_hash, block_hash])
+                c += 1
+                if c >= 20:
+                    break
+            if c >= 20:
+                break
+
+        self.render('template/blocks.html')
+
+
+class BlockHandler(tornado.web.RequestHandler):
+    def get(self):
+        global global_state
+        global global_input
+        self.block_hash = self.get_argument('blockhash').replace('0x', '')
+        it = global_input.iteritems()
+        self.chain = self.get_argument('chain', 'base')
         assert self.chain in setting.chains
 
         it.seek(('%s-blocktx-%s-' % (self.chain, self.block_hash)).encode('utf8'))
         self.txs = []
+        self.block_number = 0
         for key, value_json in it:
             print('blocktx', key)
             if not key.startswith(('%s-blocktx-%s-' % (self.chain, self.block_hash)).encode('utf8')):
@@ -127,13 +223,14 @@ class BlockHandler(tornado.web.RequestHandler):
 
         self.render('template/block.html')
 
+
 class TxHandler(tornado.web.RequestHandler):
     def get(self):
         tx_hash = self.get_argument('txhash').replace('0x', '')
         # print(tx_hash)
         # global global_state
         global global_input
-        self.chain = self.get_argument('chain', 'cto')
+        self.chain = self.get_argument('chain', 'base')
         assert self.chain in setting.chains
 
         it = global_input.iteritems()
@@ -163,70 +260,100 @@ class TxHandler(tornado.web.RequestHandler):
 
         self.render('template/tx.html')
 
-class AddressHandler(tornado.web.RequestHandler):
+
+class GotoHandler(tornado.web.RequestHandler):
     def get(self):
-        self.addr = self.get_argument('addr')
-        # print(tx_hash)
         global global_state
-        global global_input
-        self.chain = self.get_argument('chain', 'cto')
-        assert self.chain in setting.chains
+        query = self.get_argument('query')
+        if query.isdigit():
+            blockno = int(query)
+            it = global_input.iteritems()
+            it.seek(('base-block-'.encode('utf8')))
+            block_hash = None
+            for key, value_json in it:
+                if not key.startswith('base-block-'.encode('utf8')):
+                    break
+                ks = key.decode('utf8').split('-')
+                if len(ks) < 4:
+                    continue
+                reversed_no = int(ks[2])
+                if setting.REVERSED_NO - reversed_no == blockno:
+                    block_hash = ks[3]
+                    break
+            if block_hash is None:
+                self.finish('Error Block not found')
+                return
+            self.redirect(f'/block?blockhash={block_hash}')
+            return
 
+        if query.startswith('0x'):
+            hex_query = query[2:]
+        else:
+            hex_query = query
+
+        # Check if it's a block hash
+        block_key = f'base-blocktx-{hex_query}-'.encode('utf8')
         it = global_input.iteritems()
-        k = '%s-addr-%s-' % (self.chain, self.addr.lower())
-        it.seek(k.encode('utf8'))
-        self.transactions = []
-        c = 0
-        for key, value_json in it:
-            # print('k', k)
-            if not key.startswith(k.encode('utf8')):
-                break
-            # print('tx', key, value_json)
-            _, _, _, nonce = key.decode('utf8').split('-')
-            # self.nonce = setting.REVERSED_NO - int(nonce)
-            tx = json.loads(value_json)
-            self.transactions.append(tx)
-            if c >= 20:
-                break
+        it.seek(block_key)
+        for key, _ in it:
+            if key.startswith(block_key):
+                self.redirect(f'/block?blockhash={hex_query}')
+                return
+            break
 
-        self.render('template/addr.html')
+        # Check if it's a tx hash
+        tx_key = f'base-tx-{hex_query}-'.encode('utf8')
+        it.seek(tx_key)
+        for key, _ in it:
+            if key.startswith(tx_key):
+                self.redirect(f'/tx?txhash={hex_query}')
+                return
+            break
+
+        self.finish('Error Not found')
 
 class StateHandler(tornado.web.RequestHandler):
     def get(self):
         global global_state
 
-        self.block_number = int(self.get_argument('blockno', 1))
-        self.chain = self.get_argument('chain', 'cto')
+        self.chain = self.get_argument('chain', 'base')
+        try:
+            self.block_number = int(self.get_argument('blockno'))
+        except:
+            self.block_number = int(global_input.get(('%s-height' % (self.chain)).encode('utf8')))
 
         self.state_keys = []
         self.state_values = {}
-        for i in range(10):
+        for i in range(100):
+            # no = (str(setting.REVERSED_NO - self.block_number)).zfill(16)
+            # k = ('%s_state_key-%s-%s' % (self.chain, i, no)).encode('utf8')
             k = ('%s_state_key-%s-' % (self.chain, i)).encode('utf8')
-            print('k', k)
+            # print('k', k)
 
             it = global_state.iteritems()
             it.seek(k)
             for key, value_json in it:
-                print(key)
                 if not key.startswith(k):
                     break
+                # print(key, k)
                 ks = key.decode('utf8').split('-')
                 no = setting.REVERSED_NO - int(ks[2])
                 if no > self.block_number:
-                    break
+                    continue
 
                 key2 = json.loads(value_json)
                 self.state_keys.append(key2)
 
                 it2 = global_state.iteritems()
-                k2 = ('%s-%s-' % (self.chain, key2)).encode('utf8')
+                k2 = ('%s-%s-%s' % (self.chain, key2, ks[2])).encode('utf8')
                 print('k2', k2)
                 it2.seek(k2)
                 for key, value_json in it2:
-                    # print(key, value_json)
                     if not key.startswith(k2):
                         break
-                    self.state_values[key2] = no, value_json
+                    # print('k3', key, key2, no, value_json)
+                    if key2 not in self.state_values:
+                        self.state_values[key2] = no, value_json
                     break
                 break
 
@@ -239,7 +366,7 @@ class InputHandler(tornado.web.RequestHandler):
         global global_input
 
         self.block_number = int(self.get_argument('blockno', 1))
-        chain = self.get_argument('chain', 'cto')
+        chain = self.get_argument('chain', 'base')
         height = self.block_number//10*10
         self.write('<a href="/input?chain=%s&blockno=%s">%s</a> ' % (chain, height - 10, height - 10))
         self.write('<a href="/input?chain=%s&blockno=%s">%s</a><br><br>' % (chain, height + 10, height + 10))
@@ -329,7 +456,7 @@ class GetBlockAPIHandler(tornado.web.RequestHandler):
         global global_state
         global global_input
         number = int(self.get_argument('number', 0))
-        chain = self.get_argument('chain', 'cto')
+        chain = self.get_argument('chain', 'base')
         assert chain in setting.chains
 
         it = global_input.iteritems()
@@ -349,12 +476,17 @@ class GetBlockAPIHandler(tornado.web.RequestHandler):
 
 class GetTxAPIHandler(tornado.web.RequestHandler):
     def get(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+
         global global_state
         global global_input
         tx_hash = self.get_argument('txhash')
-        chain = self.get_argument('chain', 'cto')
+        chain = self.get_argument('chain', 'base')
         assert chain in setting.chains
 
+        block_hash = None
         it = global_input.iteritems()
         k = '%s-tx-%s-' % (chain, tx_hash)
         it.seek(k.encode('utf8'))
@@ -369,6 +501,10 @@ class GetTxAPIHandler(tornado.web.RequestHandler):
             print(tx_value)
             break
 
+        if block_hash is None:
+            self.finish({'error': 'transaction not found yet'})
+            return
+
         k = '%s-blocktx-%s-' % (chain, block_hash)
         it.seek(k.encode('utf8'))
         for key, value_json in it:
@@ -380,7 +516,7 @@ class GetTxAPIHandler(tornado.web.RequestHandler):
             #     print('tx', i)
             print(tx_info)
             break
-        self.finish({'value': tx_value, 'info': tx_info})
+        self.finish({'value': tx_value, 'info': tx_info, 'error': None})
 
 
 class MainHandler(tornado.web.RequestHandler):
@@ -405,7 +541,8 @@ class MainHandler(tornado.web.RequestHandler):
         block_hash = blk['block_hash'].replace('0x', '')
         # print(blk)
         transactions = [i['tx_hash'].replace('0x', '') for i, a in blk['txs']]
-        global_input.put(('%s-block-%s-%s' % (chain, str(setting.REVERSED_NO - block_number).zfill(16), block_hash)).encode('utf8'), json.dumps({'transactions': transactions}).encode('utf8'))
+        if transactions:
+            global_input.put(('%s-block-%s-%s' % (chain, str(setting.REVERSED_NO - block_number).zfill(16), block_hash)).encode('utf8'), json.dumps({'transactions': transactions}).encode('utf8'))
         # print(txs)
         tx_index = 0
         for data in blk['txs']:
@@ -426,7 +563,8 @@ class MainHandler(tornado.web.RequestHandler):
             #     pass
             tx_index += 1
 
-        space.merge()
+        if blk['txs']:
+            space.merge()
         global_input.put(('%s-height' % (chain)).encode('utf8'), str(block_number).encode('utf8'))
         self.finish()
         # print(req['method'], req['params'])
@@ -438,12 +576,14 @@ class Application(tornado.web.Application):
             (r'/(favicon\.ico)', tornado.web.StaticFileHandler, {'path': 'static/'}),
             (r'/static/(.*)', tornado.web.StaticFileHandler, {'path': 'static/'}),
 
+            (r'/api/orderbook', OrderbookAPIHandler),
             (r'/api/get_latest_state', GetLatestStateAPIHandler),
             (r'/api/query_recent_state', QueryRecentStateAPIHandler),
             (r'/api/get_block', GetBlockAPIHandler),
             (r'/api/get_tx', GetTxAPIHandler),
 
-            (r'/address', AddressHandler),
+            # (r'/address', AddressHandler),
+            (r'/goto', GotoHandler),
             (r'/blocks', BlocksHandler),
             (r'/block', BlockHandler),
             (r'/tx', TxHandler),
@@ -457,133 +597,142 @@ class Application(tornado.web.Application):
         tornado.web.Application.__init__(self, handlers, **settings)
 
 
-def clean():
+def jump():
     global global_input
-    global global_state
-    # global pending_state
+    block_number = int(sys.argv[2])
+    global_input.put(('%s-height' % ('base')).encode('utf8'), str(block_number).encode('utf8'))
 
-    # it = global_input.iteritems()
-    st = global_state.iteritems()
-    k = b'cto-'
-    st.seek(k)
-    c = 0
-    for key, value_json in st:
-        if not key.startswith(k):
-            break
-        if c % 1000 == 0:
-            print('delete', key)
-        c += 1
-        global_state.delete(key)
+# def clean():
+#     global global_input
+#     global global_state
+#     # global pending_state
 
-    k = b'cto_state_keys-'
-    st.seek(k)
-    c = 0
-    for key, value_json in st:
-        if not key.startswith(k):
-            break
-        if c % 1000 == 0:
-            print('remove state keys', key)
-        c += 1
-        global_state.delete(key)
-    global_input.put(('%s-height' % ('cto')).encode('utf8'), str(1).encode('utf8'))
+#     # it = global_input.iteritems()
+#     st = global_state.iteritems()
+#     k = b'base-'
+#     st.seek(k)
+#     c = 0
+#     for key, value_json in st:
+#         if not key.startswith(k):
+#             break
+#         if c % 1000 == 0:
+#             print('delete', key)
+#         c += 1
+#         global_state.delete(key)
 
-def index():
-    global global_input
-    global global_state
+#     k = b'base_state_keys-'
+#     st.seek(k)
+#     c = 0
+#     for key, value_json in st:
+#         if not key.startswith(k):
+#             break
+#         if c % 1000 == 0:
+#             print('remove state keys', key)
+#         c += 1
+#         global_state.delete(key)
+#     global_input.put(('%s-height' % ('base')).encode('utf8'), str(1).encode('utf8'))
 
-    it = global_input.iteritems()
-    st = global_state.iteritems()
+# def index():
+#     global global_input
+#     global global_state
 
-    min_block = int(global_input.get(('%s-height' % ('cto')).encode()).decode())
-    # print('min_block', min_block)
-    if len(sys.argv) == 3 and sys.argv[1] == '-index':
-        min_block = int(sys.argv[2])
+#     it = global_input.iteritems()
+#     st = global_state.iteritems()
 
-    k = b'cto-'
-    st.seek(k)
-    c = 0
-    for key, value_json in st:
-        if not key.startswith(k):
-            break
-        no = setting.REVERSED_NO - int(key.decode('utf8').split('-')[3])
-        if no >= min_block:
-            print('delete', min_block, no, key)
-            global_state.delete(key)
-        c += 1
+#     min_block = int(global_input.get(('%s-height' % ('base')).encode()).decode())
+#     # print('min_block', min_block)
+#     if len(sys.argv) == 3 and sys.argv[1] == '-index':
+#         min_block = int(sys.argv[2])
 
-    k = b'cto-block-'
-    it.seek(k)
-    max_block = 0
+#     k = b'base-'
+#     st.seek(k)
+#     c = 0
+#     for key, value_json in st:
+#         if not key.startswith(k):
+#             break
+#         no = setting.REVERSED_NO - int(key.decode('utf8').split('-')[3])
+#         if no >= min_block:
+#             print('delete', min_block, no, key)
+#             global_state.delete(key)
+#         c += 1
 
-    for key, value_json in it:
-        if not key.startswith(k):
-            break
-        if max_block == 0:
-            max_block = setting.REVERSED_NO - int(key.decode().split('-')[2])
-            break
-    print('min_block', min_block, 'max_block', max_block)
+#     k = b'base-block-'
+#     it.seek(k)
+#     max_block = 0
 
-    for i in range(min_block, max_block + 1):
-        k = ('cto-block-%s-' % str(setting.REVERSED_NO - i).zfill(16)).encode()
-        # print(k)
-        # it.seek_to_first()
-        it.seek(k)
-        # value_json = global_input.get(key.encode())
-        for key, value_json in it:
-            if not key.startswith(k):
-                break
-            value = json.loads(value_json)
-            if value['transactions']:
-                print(i, value['transactions'])
-                ks = key.decode('utf8').split('-')
-                chain = ks[0] #blk['chain']
-                height = setting.REVERSED_NO - int(ks[2]) #blk['block_number']
-                block_hash = ks[3] #blk['block_hash'].replace('0x', '')
-                # print(chain, height, block_hash)
+#     for key, value_json in it:
+#         if not key.startswith(k):
+#             break
+#         if max_block == 0:
+#             max_block = setting.REVERSED_NO - int(key.decode().split('-')[2])
+#             break
+#     print('min_block', min_block, 'max_block', max_block)
 
-                tx_index = 0
-                for tx in value['transactions']:
-                    k2 = ('%s-tx-%s-' % (chain, tx)).encode()
-                    # print(k2)
-                    # it.seek_to_first()
-                    it.seek(k2)
-                    # value_json = global_input.get(key.encode())
-                    for key2, value_json2 in it:
-                        if not key2.startswith(k2):
-                            break
-                        # print(tx, value_json2)
-                        # value2 = json.loads(value_json2)
-                        # if value['transactions']:
+#     for i in range(min_block, max_block + 1):
+#         k = ('base-block-%s-' % str(setting.REVERSED_NO - i).zfill(16)).encode()
+#         # print(k)
+#         # it.seek_to_first()
+#         it.seek(k)
+#         # value_json = global_input.get(key.encode())
+#         for key, value_json in it:
+#             if not key.startswith(k):
+#                 break
+#             value = json.loads(value_json)
+#             if value['transactions']:
+#                 print(i, value['transactions'])
+#                 ks = key.decode('utf8').split('-')
+#                 chain = ks[0] #blk['chain']
+#                 height = setting.REVERSED_NO - int(ks[2]) #blk['block_number']
+#                 block_hash = ks[3] #blk['block_hash'].replace('0x', '')
+#                 # print(chain, height, block_hash)
 
-                        # blk = json.loads(value_json2)
-                        # transactions = [i['tx_hash'].replace('0x', '') for i, a in blk['txs']]
-                        # print(txs)
-                        info_value = global_input.get(('%s-blocktx-%s-%s' % (chain, block_hash, tx)).encode('utf8'))
-                        # print(data)
-                        info = json.loads(info_value) #data[0]
-                        info['block_number'] = height
-                        info['block_hash'] = block_hash
-                        info['chain'] = chain
-                        # print(info)
-                        arg = json.loads(value_json2) #data[1]
-                        # nonce = str(setting.REVERSED_NO - int(info['nonce'])).zfill(16)
-                        funcs.process(info, arg)
-                        tx_index += 1
-                        break
+#                 tx_index = 0
+#                 for tx in value['transactions']:
+#                     k2 = ('%s-tx-%s-' % (chain, tx)).encode()
+#                     # print(k2)
+#                     # it.seek_to_first()
+#                     it.seek(k2)
+#                     # value_json = global_input.get(key.encode())
+#                     for key2, value_json2 in it:
+#                         if not key2.startswith(k2):
+#                             break
+#                         # print(tx, value_json2)
+#                         # value2 = json.loads(value_json2)
+#                         # if value['transactions']:
 
-                space.merge()
-                global_input.put(('%s-height' % (chain)).encode('utf8'), str(block_number).encode('utf8'))
+#                         # blk = json.loads(value_json2)
+#                         # transactions = [i['tx_hash'].replace('0x', '') for i, a in blk['txs']]
+#                         # print(txs)
+#                         info_value = global_input.get(('%s-blocktx-%s-%s' % (chain, block_hash, tx)).encode('utf8'))
+#                         # print(data)
+#                         info = json.loads(info_value) #data[0]
+#                         info['block_number'] = height
+#                         info['block_hash'] = block_hash
+#                         info['chain'] = chain
+#                         # print(info)
+#                         arg = json.loads(value_json2) #data[1]
+#                         # nonce = str(setting.REVERSED_NO - int(info['nonce'])).zfill(16)
+#                         funcs.process(info, arg)
+#                         tx_index += 1
+#                         break
+
+#                 space.merge()
+#                 global_input.put(('%s-height' % (chain)).encode('utf8'), str(block_number).encode('utf8'))
 
 
-            break
+#             break
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == '-clean':
-        clean()
+    if len(sys.argv) > 1 and sys.argv[1] == '--jump':
+        jump()
         return
 
-    if len(sys.argv) > 1 and sys.argv[1] == '-index':
-        index()
+    # if len(sys.argv) > 1 and sys.argv[1] == '--clean':
+    #     clean()
+    #     return
+
+    # if len(sys.argv) > 1 and sys.argv[1] == '--index':
+    #     index()
 
     server = Application()
     server.listen(setting.INDEXER_PORT, '0.0.0.0')

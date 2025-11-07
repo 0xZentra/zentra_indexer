@@ -15,8 +15,8 @@ handle2 = 'rewarder'
 
 REVERSED_NO = 10**15
 
-chains = {'cto', 'op'}
-chain = 'op'
+chains = {'cto', 'base'}
+chain = 'base'
 assets = {'ETH', 'USDT'}
 appstates = set()
 
