@@ -1,0 +1,77 @@
+<html>
+<head>
+    <title>State</title>
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body>
+    {% include 'nav.html' %}
+
+    <div class="container mx-auto">
+        <div class="bg-white rounded p-4 border border-gray-300 my-4">
+            <div class="flex justify-between my-4">
+                {% if handler.block_number > 1 %}
+                    <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number - 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Prev</a>
+                {% else %}
+                    <button disabled class="bg-gray-400 text-white font-bold py-2 px-4 rounded cursor-not-allowed">Previous</button>
+                {% end if %}
+    
+                <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number + 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Next</a>
+            </div>
+
+            <h2 class="text-2xl font-bold">State Details</h2>
+            <br>
+            Block Number: {{ handler.block_number }}<br><br>
+
+            {% for i in handler.state_keys %}
+            <div>
+                <button class="show_value">▷</button>
+                <button class="hide_value">▼</button>
+                <span class="{{ '' if handler.state_values[i][0] == handler.block_number else 'text-gray-400' }}">{{ i }}</span>
+                <span class="rounded bg-gray-400 px-1">{{ handler.state_values[i][0] }}</span><br>
+                <div class="value_content mx-4">
+                    <code>
+                        {{ handler.state_values[i][1] }}
+                    </code>
+                </div>
+            </div>
+            {% end for %}
+        </div>
+    </div>
+<script type="module">
+    // Hide all value divs initially
+    document.querySelectorAll('.value_content').forEach(div => {
+        div.style.display = 'none';
+    });
+
+    // Hide all hide buttons initially
+    document.querySelectorAll('.hide_value').forEach(button => {
+        button.style.display = 'none';
+    });
+
+    // Add click handlers for show buttons
+    document.querySelectorAll('.show_value').forEach(button => {
+        button.addEventListener('click', e => {
+            const valueDiv = e.target.parentElement.querySelector('.value_content');
+            const hideButton = e.target.parentElement.querySelector('.hide_value');
+            
+            valueDiv.style.display = 'block';
+            e.target.style.display = 'none';
+            hideButton.style.display = 'inline';
+        });
+    });
+
+    // Add click handlers for hide buttons 
+    document.querySelectorAll('.hide_value').forEach(button => {
+        button.addEventListener('click', e => {
+            const valueDiv = e.target.parentElement.querySelector('.value_content');
+            const showButton = e.target.parentElement.querySelector('.show_value');
+            
+            valueDiv.style.display = 'none';
+            e.target.style.display = 'none';
+            showButton.style.display = 'inline';
+        });
+    });
+</script>
+
+</body>
+</html>

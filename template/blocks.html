@@ -1,0 +1,47 @@
+<html>
+<head>
+    <title>Zentra Explorer</title>
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body>
+    {% include 'nav.html' %}
+
+    <div class="container mx-auto">
+        <div class="flex justify-start items-center">
+            <form action="/search" method="get" class="mt-4 mb-4 ml-4 bg-gray-800 p-2 rounded">
+                <input type="text" name="query" placeholder="Search by address, tx hash or block no" class="h-10 w-96 text-gray-800 bg-white border-gray-600 rounded p-2">
+                <button type="submit" class="h-10 bg-orange-500 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded">Search</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="container mx-auto">
+        <div class="flex justify-between">
+            <div class="w-1/2 bg-white rounded p-4 border border-gray-300 my-4">
+                <h2 class="text-2xl font-bold">Latest Blocks</h2>
+                <ul>
+                    {% for block_height, block_hash in handler.recent_blocks %}
+                    <li class="flex justify-between items-center py-4 border-b border-gray-200">
+                        <div style="background-image: url(/static/block.png); width: 43px; height: 42px;"></div>
+                        <div class="" style="margin: auto auto auto 5px;">{{ block_height }}</div>
+                        <div class=""><a href="/block?chain={{ handler.chain }}&blockhash={{ block_hash }}">{{ block_hash[:20] }}...{{ block_hash[-10:] }}</a></div>
+                    </li>
+                    {% end for %}
+                </ul>
+            </div>
+            <div class="w-1/2 bg-white rounded p-4 border border-gray-300 mx-4 my-4">
+                <h2 class="text-2xl font-bold">Latest Transactions</h2>
+                <ul>
+                    {% for tx_hash, block_hash in handler.recent_transactions %}
+                    <li class="flex justify-between items-center py-4 border-b border-gray-200">
+                        <div style="background-image: url(/static/tx.png); width: 43px; height: 42px;"></div>
+                        <div class=""><a href="/tx?chain={{ handler.chain }}&txhash={{ tx_hash }}">{{ tx_hash[:20] }}...{{ tx_hash[-10:] }}</a></div>
+                    </li>
+                    {% end for %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

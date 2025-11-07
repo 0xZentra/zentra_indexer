@@ -1,0 +1,25 @@
+<html>
+<head>
+    <title>Address</title>
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body>
+    {% include 'nav.html' %}
+
+    <div class="container mx-auto">
+        <div class="bg-white rounded p-4 border border-gray-300 my-4">
+            <h2 class="text-2xl font-bold">Address</h2>
+            From: {{ handler.addr }}<br><br>
+
+            {% for i in handler.transactions %}
+            Tx hash: <a href="/tx?chain={{ handler.chain }}&txhash={{ i['tx_hash'] }}">{{ i['tx_hash'] }}</a><br>
+            Tx index: {{ i['tx_index'] }}<br>
+            Block hash: <a href="/block?chain={{ handler.chain }}&blockhash={{ i['block_hash'] }}">{{ i['block_hash'] }}</a><br>
+            Nonce: {{ i['nonce'] }}<br><br>
+            {% end for %}
+            <br><br>
+        </div>
+    </div>
+
+</body>
+</html>

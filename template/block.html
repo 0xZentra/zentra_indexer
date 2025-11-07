@@ -1,0 +1,23 @@
+<html>
+<head>
+    <title>Block</title>
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body>
+    {% include 'nav.html' %}
+    <div class="container mx-auto">
+        <div class="bg-white rounded p-4 border border-gray-300 my-4">
+            <h2 class="text-2xl font-bold">Block Details</h2>
+
+            Block Number: {{ handler.block_number }}<br>
+            Block Hash: {{ handler.block_hash }}<br><br>
+
+            Transactions:<br>
+            {% for tx_hash, tx_index in handler.txs %}
+            {{ tx_index }}: <a href="/tx?chain={{ handler.chain }}&txhash={{ tx_hash }}">{{ tx_hash }}</a><br>
+            {% end for %}
+            <br><br>
+        </div>
+    </div>
+</body>
+</html>
