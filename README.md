@@ -1,19 +1,36 @@
-# Zentra Indexer
+# Zentra
 
-Ubuntu 22.04 LTS
+## Install
+Zentra project can be run with two kinds setup: any Linux with conda-forge or Ubuntu 22.04 LTS
 
-Windows WSL or cloud server
+### conda-forge
 
-    sudo apt update
+Install conda-forge
 
-Python 3.10
+[https://conda-forge.org/download/](https://conda-forge.org/download/)
 
-    sudo apt install python3-is-python python3-dev
+Create zentra environment
 
-Python RocksDB
+    mamba create -n zentra python==3.10
 
-    sudo apt install python3-rocksdb
+    mamba activate zentra
 
-Others
+    mamba install python-rocksdb
 
-    pip install tornado web3py
+    cd zentra_folder
+
+    pip install -r requirements.txt
+
+### Ubuntu 22.04 LTS
+
+    sudo apt install python3-pip python3-rocksdb python-is-python3
+
+## Run Zentra
+
+The gazer
+
+    python gazer_base.py
+
+The indexer
+
+    python indexer.py

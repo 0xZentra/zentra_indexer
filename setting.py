@@ -1,23 +1,16 @@
 import hashlib
 
 # import eth_account
-
-class Account:
-    pass
-
-account = Account()
-account.address = '0xe1288759446298f250C3Bce5616706D25525Ba7F'.lower()
-handle = 'powid'
-
-account2 = Account()
-account2.address = '0x06F40E30155779C46E002c8D73E0a0293eD5ee43'.lower()
-handle2 = 'rewarder'
+INIT_HEIGHT = 29450134 # testnet3
 
 REVERSED_NO = 10**15
 
 chains = {'cto', 'base'}
 chain = 'base'
-assets = {'ETH', 'USDT'}
+gazers = {
+    'base': 'http://127.0.0.1:8091',
+}
+assets = {'WETH', 'USDC', 'USDT'}
 appstates = set()
 
 version = 1

@@ -1,0 +1,24 @@
+# use conda-forge or apt for python-rocksdb
+# use pip for the rest
+
+aiohttp==3.11.18
+attrs==25.3.0
+hexbytes==1.3.1
+tornado==6.5.2
+web3==6.11.0
+eth-account==0.13.7
+eip712==0.2.11
+eth_abi==5.2.0
+eth-keys==0.7.0
+eth-rlp==2.2.0
+eth-typing==4.4.0
+eth-utils==4.1.1
+frozenlist==1.6.0
+idna==3.10
+multidict==6.4.4
+pyunormalize==16.0.0
+rlp==4.1.0
+yarl==1.20.0
+requests==2.32.5
+
+# remove regex

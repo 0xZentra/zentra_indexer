@@ -10,7 +10,7 @@ def get_conn():
 
     if not os.path.exists('states'):
         os.makedirs('states')
-    conn = rocksdb.DB('states/inspace.db', rocksdb.Options(create_if_missing=True))
+    conn = rocksdb.DB('states/indexer.db', rocksdb.Options(create_if_missing=True))
     return conn
 
 conn_tx = None

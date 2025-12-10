@@ -7,6 +7,8 @@ import opcode
 
 assert sys.version_info.major == 3
 
+SOFT_LIMIT = 200000000
+
 class Context:
     def __init__(self, code, args):
         self.code = code
@@ -28,6 +30,8 @@ class VM:
 
         self.global_vars = {}
         self.native_vars = set()
+        self.funcs = []
+        self.count = 0
 
     def import_function(self, function_object, global_vars = {}):
         self.code = function_object.__code__
@@ -39,7 +43,6 @@ class VM:
         for k, v in module_object.__dict__.items():
             if not k.startswith('__'):
                 self.global_vars[k] = v
-
 
         self.module_object = module_object
 
@@ -57,7 +60,7 @@ class VM:
             result = functools.partial(func, *args)()
             return result
 
-        print(func.__code__.co_argcount, args)
+        # print(func.__code__.co_argcount, args)
         # assert func.__code__.co_argcount == len(args)
         assert func.__code__.co_code
         ctx = Context(func.__code__, args)
@@ -67,8 +70,12 @@ class VM:
             pc = ctx.pc
             # try:
             r = self.step(ctx)
+            self.count += 1
+            if self.count >= SOFT_LIMIT:
+                print('SOFT LIMIT', self.count)
+                return None
             if r is not None:
-                print('return value', r)
+                # print('return value', r)
                 return r
 
     def run(self, args, function_name = None):
@@ -93,6 +100,7 @@ class VM:
         self.global_vars['len'] = len
         self.global_vars['min'] = min
         self.global_vars['max'] = max
+        self.global_vars['pow'] = pow
         # self.global_vars['open'] = open
         self.global_vars['AssertionError'] = AssertionError
         self.native_vars.add(type)
@@ -106,6 +114,7 @@ class VM:
         self.native_vars.add(len)
         self.native_vars.add(min)
         self.native_vars.add(max)
+        self.native_vars.add(pow)
 
         assert self.code.co_argcount == len(args)
         assert self.code.co_code
@@ -122,27 +131,18 @@ class VM:
         # print('---')
 
         pc = -1
-        count = 0
+        self.count = 0
         while pc != ctx.pc:
             pc = ctx.pc
-            # try:
             r = self.step(ctx)
-            count += 1
-            if count >= 10000:
-                return None, count
+            self.count += 1
+            if self.count >= SOFT_LIMIT:
+                print('SOFT LIMIT', pc)
+                return False
             if r is not None:
-                print('return value', r)
-                return r
-            # except BaseException as e:
-            #     print('except', e.__class__.__name__, dir(e.__class__))
-            #     print('blocks', ctx.blocks)
-            #     if ctx.blocks:
-            #         new_pc = ctx.blocks[-1]
-            #         ctx.pc = new_pc
-            # print('stack', ctx.stack)
-        # print('---')
-        # print('global_vars', self.global_vars)
-        return False
+                return True
+        print('End at PC', pc)
+        return True
 
     def step(self, ctx):
         co_code = ctx.code.co_code
@@ -288,6 +288,12 @@ class VM:
             ctx.stack.append(obj - val)
             ctx.pc += 2
 
+        elif co_code[ctx.pc] == 0x3b: # INPLACE_MODULO
+            val = ctx.stack.pop()
+            obj = ctx.stack.pop()
+            ctx.stack.append(obj % val)
+            ctx.pc += 2
+
         elif co_code[ctx.pc] == 0x3c: # STORE_SUBSCR
             key = ctx.stack.pop()
             obj = ctx.stack.pop()
@@ -305,6 +311,12 @@ class VM:
             # print('DELETE_SUBSCR', obj)
             ctx.pc += 2
 
+        elif co_code[ctx.pc] == 0x40: # BINARY_AND
+            right = ctx.stack.pop()
+            left = ctx.stack.pop()
+            ctx.stack.append(left & right)
+            ctx.pc += 2
+
         elif co_code[ctx.pc] == 0x44: # GET_ITER
             val = ctx.stack.pop()
             ctx.stack.append(iter(val))
@@ -317,6 +329,12 @@ class VM:
         elif co_code[ctx.pc] == 0x4a: # LOAD_ASSERTION_ERROR
             # print('LOAD_ASSERTION_ERROR', param)
             raise AssertionError
+
+        elif co_code[ctx.pc] == 0x4c: # INPLACE_RSHIFT
+            val = ctx.stack.pop()
+            obj = ctx.stack.pop()
+            ctx.stack.append(obj >> val)
+            ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x51: # WITH_CLEANUP_START
             # val = ctx.stack.pop()
@@ -582,9 +600,9 @@ class VM:
             ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x83: # CALL_FUNCTION
-            # print('CALL_FUNCTION', param)
             # print('CALL_FUNCTION', ctx.stack)
             func = ctx.stack[-1-param]
+            # print('CALL_FUNCTION', func)
             if param:
                 params = ctx.stack[-param:]
             else:
@@ -602,6 +620,8 @@ class VM:
             code = ctx.stack.pop()
             func = types.FunctionType(code, self.global_vars, name)
             ctx.stack.append(func)
+            print('MAKE_FUNCTION', name)
+            self.funcs.append(name)
             # print('MAKE_FUNCTION', ctx.stack)
             ctx.pc += 2
 
@@ -683,11 +703,16 @@ class VM:
             # print('local_vars', ctx.local_vars)
 
         elif co_code[ctx.pc] == 0x9b: # FORMAT_VALUE
+            # print('FORMAT_VALUE', param)
             format_string = ctx.stack.pop()
+
             val = ctx.stack.pop()
-            # ctx.stack.append(format(val, format_string))
-            ctx.stack.append(val)
-            ctx.stack.append(format_string)
+            if param == 0:
+                # print(format_string, val)
+                ctx.stack.append(val)
+                ctx.stack.append(format_string)
+            else:
+                ctx.stack.append(format(val, format_string))
             ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x9c: # BUILD_CONST_KEY_MAP

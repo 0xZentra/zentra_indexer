@@ -10,13 +10,27 @@ import database
 
 import funcs
 
+global_funcs = {}
+global_snippets = {}
+
+def funcs_reload(func_names):
+    for func_name in func_names:
+        if func_name in global_funcs:
+            del global_funcs[func_name]
+
 global_state = database.get_conn()
 global_state_space = {}
 states = {}
 state_indexes = []
+# state_change = False
+events = {}
 
 tx_index = 0
 info = None
+chain = None
+block_hash = None
+block_number = None
+func_name = None
 
 def _get_state_len(chain):
     it = global_state.iteritems()
@@ -50,7 +64,7 @@ for i in range(state_len):
                     tree_cache[0][i] = hashlib.sha256(key_value.encode('utf8') + value_json2).hexdigest()
                 break
         break
-print('> tree_cache', tree_cache)
+# print('> tree_cache', tree_cache)
 
 tree_height = 1
 if state_len > 0:
@@ -69,17 +83,14 @@ for i in range(tree_height):
         if q in tree_cache[i]:
             qh = tree_cache[i][q]
             pair = sorted([ph, qh])
-            # tree_cache.setdefault(i+1, {})
             tree_cache[i+1][int(p/2)] = hashlib.sha256((pair[0] + pair[1]).encode('utf8')).hexdigest()
             break
         tree_cache[i+1][int(p/2)] = hashlib.sha256((tree_cache[i][p]).encode('utf8')).hexdigest()
-print('> tree_cache2', tree_cache)
+# print('> tree_cache2', tree_cache)
 
 
 def put(_owner, _asset, _var, _value, _key = None):
     global global_state
-    global state_keys_updated
-    global state_keys_removed
 
     assert type(_var) is str
     if _key is not None:
@@ -94,13 +105,14 @@ def put(_owner, _asset, _var, _value, _key = None):
     state = states.get(tx_index, {})
     state[k] = [addr, _value]
     states[tx_index] = state
+    # state_change = True
 
     if tx_index not in state_indexes:
         state_indexes.append(tx_index)
 
 
 def get(_asset, _var, _default = None, _key = None):
-    global info
+    global chain
     global global_state
 
     asset_name = _asset
@@ -114,80 +126,94 @@ def get(_asset, _var, _default = None, _key = None):
 
     k = '%s-%s' % (asset_name, var)
     # print('get', k, 'tx_index', tx_index)
-    state = states.get(tx_index, {})
-    v = state.get(k)
-    if v is not None:
-        addr, value = v
-        return value
+    for i in reversed(state_indexes):
+        state = states.get(i, {})
+        v = state.get(k)
+        if v is not None:
+            addr, value = v
+            return value, addr
 
-    chain = info['chain']
+    addr = None
     it = global_state.iteritems()
     k = '%s-%s-' % (chain, k)
     it.seek(k.encode('utf8'))
     for key, value_json in it:
         if key.startswith(k.encode('utf8')):
             value = tornado.escape.json_decode(value_json)
+            addr = key.decode('utf8').split('-')[-1]
+            print('get key', key, addr)
         break
 
-    return value
+    return value, addr
 
 
 def merge():
-    global info
+    global chain
+    global block_number
+    global block_hash
     global global_state
     global states
     global state_indexes
-    # global merkle_roots
+    # global state_change
     global tree_cache
 
-    # print('> merkle_roots', merkle_roots)
     # print('> tree_cache', tree_cache)
-    # print('> info', info)
-    chain = info['chain']
-    block_number = info['block_number']
-    block_hash = info['block_hash']
     reversed_block_no = str(setting.REVERSED_NO - block_number).zfill(16)
     state_keys_updated = set()
     state_keys_removed = set()
+    block_state = {}
 
     # print('>> merge', block_number)
     # print('> state_keys_updated', state_keys_updated)
     # print('> state_indexes', state_indexes)
-    for tx_index in reversed(state_indexes):
-        state = states.get(tx_index)
-        for key, addr_value in state.items():
-        # addr_value = state.get(key)
-            if addr_value is None:
-                continue
-            addr, value = addr_value
-            global_state_space.setdefault(addr, 0)
-            asset_name, var = key.split('-')
-            it = global_state.iteritems()
-            k = '%s-%s-%s-' % (chain, asset_name, var)
-            k2 = '%s-%s' % (asset_name, var)
-            it.seek(k.encode('utf8'))
-            for key, value_json in it:
-                if key.startswith(k.encode('utf8')):
-                    global_state_space[addr] -= len(value_json)
-                break
+    for i in state_indexes:
+        state = states.get(i)
+        if state is not None:
+            for key, addr_value in state.items():
+                block_state[key] = addr_value
+    # print('> block_state', block_state)
 
-            value_json = tornado.escape.json_encode(value).encode('utf8')
-            k3 = ('%s-%s-%s-%s-%s-%s' % (chain, asset_name, var, reversed_block_no, block_hash, addr)).encode('utf8')
-            global_state.put(k3, value_json)
-            if value is None:
-                state_keys_removed.add(k2)
-                if k2 in state_keys_updated:
-                    state_keys_updated.remove(k2)
-            else:
-                global_state_space[addr] += len(value_json)
-                # print('global_state_space', global_state_space)
+    for key, addr_value in block_state.items():
+        if addr_value is None:
+            continue
+        addr, value = addr_value
+        global_state_space.setdefault(addr, 0)
+        asset_name, var = key.split('-')
 
-                state_keys_updated.add(k2)
-                if k2 in state_keys_removed:
-                    state_keys_removed.remove(k2)
+        it = global_state.iteritems()
+        k1 = '%s-%s-%s-' % (chain, asset_name, var)
+        k2 = '%s-%s' % (asset_name, var)
+        it.seek(k1.encode('utf8'))
+        old_value_json = b''
+        new_value_json = tornado.escape.json_encode(value).encode('utf8')
+        no_change = False
+        for key, old_value_json in it:
+            if key.startswith(k1.encode('utf8')):
+                # print('========', old_value_json==new_value_json, old_value_json, new_value_json)
+                if old_value_json != new_value_json:
+                    global_state_space[addr] -= len(old_value_json)
+                else:
+                    no_change = True
+            break
 
-        break # as we only have 0 in state_indexes, will extend this later
+        if no_change:
+            continue
 
+        k3 = ('%s-%s-%s-%s-%s-%s' % (chain, asset_name, var, reversed_block_no, block_hash, addr)).encode('utf8')
+        global_state.put(k3, new_value_json)
+        if value is None:
+            state_keys_removed.add(k2)
+            if k2 in state_keys_updated:
+                state_keys_updated.remove(k2)
+        else:
+            global_state_space[addr] += len(new_value_json)
+            # print('global_state_space', global_state_space)
+
+            state_keys_updated.add(k2)
+            if k2 in state_keys_removed:
+                state_keys_removed.remove(k2)
+
+    # state_change = False
     if not state_keys_updated and not state_keys_removed:
         return
 
@@ -220,7 +246,7 @@ def merge():
             # for never existing key, it is always an append
             # need to think
             keys_append.append(new_state_len)
-            _addr, value = states[0][key]
+            _addr, value = block_state[key]
             # print('value', _addr, value)
             keys_append_tuple.append((new_state_len, key, value))
             k = ('%s_state_idx-%s-%s' % (chain, key, reversed_block_no)).encode('utf8')
@@ -230,7 +256,7 @@ def merge():
             new_state_len += 1
         else:
             keys_update.append(key_idx)
-            _addr, value = states[0][key]
+            _addr, value = block_state[key]
             print('value', _addr, value)
             keys_update_tuple.append((key_idx, key, value))
             k = ('%s_state_idx-%s-%s' % (chain, key, reversed_block_no)).encode('utf8')
@@ -323,8 +349,14 @@ def merge():
     state_indexes = []
 
 
-def has_appstate(_state):
-    if _state in setting.appstates:
+def event(_event, _params=[]):
+    global events
+    global tx_index
+    assert type(func_name) is str
+    events.setdefault(tx_index, []).append([func_name, _event] + _params)
+
+def has_appstate(_app):
+    if _app in setting.appstates:
         return True
     return False
 
@@ -335,7 +367,7 @@ def call(fn, params):
     print('info', info)
     global states
     print('states', states)
-    arg = {'p': 'zentest2', 'f': fn, 'a': params}
+    arg = {'p': 'zentest3', 'f': fn, 'a': params}
     funcs.process(info, arg)
 
 
@@ -343,9 +375,9 @@ def handle_resolve(_handle):
     # global block_number
     global sender
 
-    addr = global_state.get(('handle-handle2addr:%s' % (_handle, )).encode('utf8'))
-    if _handle == setting.handle:
-        addr = setting.account.address.lower()
+    addr = global_state.get(('%s-handle-handle2addr:%s' % (chain, _handle, )).encode('utf8'))
+    # if _handle == setting.handle:
+    #     addr = setting.account.address.lower()
     return addr
 
 
@@ -353,8 +385,9 @@ def handle_lookup(_addr):
     # global block_number
     global sender
 
-    handle = global_state.get(('handle-addr2handle:%s' % (_addr, )).encode('utf8'))
-    if _addr.lower() == setting.account.address.lower():
-        handle = setting.handle
-    return handle
+    addr = _addr.lower()
+    handle = global_state.get(('%s-handle-addr2handle:%s' % (chain, _addr, )).encode('utf8'))
+    # if _addr.lower() == setting.account.address.lower():
+    #     handle = setting.handle
+    return handle or addr
 
