@@ -10,17 +10,44 @@
         <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
             <h2 class="text-2xl font-bold">State at Block #{{ handler.block_number }}</h2>
             <hr>
+
+            <!-- Search Box -->
+            <div class="my-4 p-4 bg-gray-100 rounded-lg">
+                <form method="get" action="/state" class="flex gap-2">
+                    <input type="hidden" name="chain" value="{{ handler.chain }}">
+                    <input type="hidden" name="blockno" value="{{ handler.block_number }}">
+                    <input type="text" name="search" placeholder="Search by key prefix..." value="{{ handler.search or '' }}" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button type="submit" class="bg-green-500 hover:bg-green-700 text-white py-2 px-4 rounded">Search</button>
+                    {% if handler.search %}
+                        <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number }}" class="bg-gray-500 hover:bg-gray-700 text-white py-2 px-4 rounded">Clear</a>
+                    {% end if %}
+                </form>
+            </div>
+
             <div class="flex justify-between my-4">
                 <div class="flex-1 text-left">
                     {% if handler.block_number > 1 %}
-                        <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number - 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Prev</a>
+                        <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number - 1 }}&page={{ handler.page }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Prev</a>
                     {% else %}
                         <a class="bg-gray-400 text-white font-bold py-2 px-4 rounded cursor-not-allowed">Prev</a>
                     {% end if %}
-                        <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number + 1 }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Next</a>
+                        <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number + 1 }}&page={{ handler.page }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Next</a>
                 </div>
-    
+
                 <a href="/state?chain={{ handler.chain }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Latest</a>
+            </div>
+
+            <!-- Pagination -->
+            <div class="flex justify-center items-center my-4 space-x-2">
+                {% if handler.page > 0 %}
+                    <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number }}&page={{ handler.page - 1 }}{% if handler.search %}&search={{ handler.search }}{% end if %}" class="bg-blue-500 hover:bg-blue-700 text-white py-2 px-4 rounded">← Prev Page</a>
+                {% else %}
+                    <span class="bg-gray-400 text-white py-2 px-4 rounded cursor-not-allowed">← Prev Page</span>
+                {% end if %}
+                
+                <span class="mx-4 text-gray-600">Page {{ handler.page + 1 }}{% if handler.search %} (Search: <strong>{{ handler.search }}</strong>){% end if %}</span>
+                
+                <a href="/state?chain={{ handler.chain }}&blockno={{ handler.block_number }}&page={{ handler.page + 1 }}{% if handler.search %}&search={{ handler.search }}{% end if %}" class="bg-blue-500 hover:bg-blue-700 text-white py-2 px-4 rounded">Next Page →</a>
             </div>
             <br>
 

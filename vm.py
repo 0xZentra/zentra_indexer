@@ -47,7 +47,7 @@ class VM:
         self.module_object = module_object
 
     def import_src(self, src):
-        self.contexts = []
+        # self.contexts = []
         # print(dir(src))
         # print(src.co_code)
 
@@ -68,14 +68,15 @@ class VM:
         pc = -1
         while pc != ctx.pc:
             pc = ctx.pc
-            # try:
             r = self.step(ctx)
             self.count += 1
+            if self.count % 100000 == 99999:
+                print('Steps:', self.count)
             if self.count >= SOFT_LIMIT:
-                print('SOFT LIMIT', self.count)
+                print('SOFT LIMIT', pc)
                 return None
             if r is not None:
-                # print('return value', r)
+                print('Return value', r)
                 return r
 
     def run(self, args, function_name = None):
@@ -101,6 +102,8 @@ class VM:
         self.global_vars['min'] = min
         self.global_vars['max'] = max
         self.global_vars['pow'] = pow
+        self.global_vars['iter'] = iter
+        self.global_vars['next'] = next
         # self.global_vars['open'] = open
         self.global_vars['AssertionError'] = AssertionError
         self.native_vars.add(type)
@@ -115,10 +118,13 @@ class VM:
         self.native_vars.add(min)
         self.native_vars.add(max)
         self.native_vars.add(pow)
+        self.native_vars.add(iter)
+        self.native_vars.add(next)
 
         assert self.code.co_argcount == len(args)
         assert self.code.co_code
         ctx = Context(self.code, args)
+        # self.contexts.append(ctx)
 
         # print('\n')
         # print('global_vars', self.global_vars)
@@ -146,7 +152,7 @@ class VM:
 
     def step(self, ctx):
         co_code = ctx.code.co_code
-        # print('PC', ctx.pc, hex(co_code[ctx.pc]), opcode.opname[co_code[ctx.pc]])
+        print('PC', ctx.pc, hex(co_code[ctx.pc]), opcode.opname[co_code[ctx.pc]])
         # print('local_vars', self.local_vars)
         param = co_code[ctx.pc+1] + self.extended_arg
         if self.extended_arg > 0:
@@ -662,9 +668,9 @@ class VM:
             keys = ctx.stack.pop()
             values = ctx.stack[-param:]
             # print('CALL_FUNCTION_KW', keys, values)
-            params = values[:len(keys)]
-            values = values[len(keys):]
-            # print('CALL_FUNCTION_KW params', params, values)
+            params = values[:-len(keys)]
+            values = values[len(keys)-1:]
+            # print('CALL_FUNCTION_KW params', params)
             ctx.stack = ctx.stack[:-param]
             obj = ctx.stack.pop()
             # print('CALL_FUNCTION_KW', obj)
@@ -705,13 +711,13 @@ class VM:
         elif co_code[ctx.pc] == 0x9b: # FORMAT_VALUE
             # print('FORMAT_VALUE', param)
             format_string = ctx.stack.pop()
+            # print('FORMAT_VALUE format_string', format_string)
 
-            val = ctx.stack.pop()
             if param == 0:
                 # print(format_string, val)
-                ctx.stack.append(val)
-                ctx.stack.append(format_string)
+                ctx.stack.append(format(format_string))
             else:
+                val = ctx.stack.pop()
                 ctx.stack.append(format(val, format_string))
             ctx.pc += 2
 

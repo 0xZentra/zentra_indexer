@@ -143,7 +143,7 @@ def process(info, args):
                     snippet, _ = get('function', 'snippet', None, snippet_hash)
                     #print(snippet)
                     sourcecode += snippet.get('snippet', '') + '\n'
-                print('sourcecode', sourcecode)
+                # print('sourcecode', sourcecode)
                 c = codeop.compile_command(sourcecode, symbol="exec")
                 v = vm.VM()
                 v.import_src(c)

@@ -441,12 +441,15 @@ class GotoHandler(tornado.web.RequestHandler):
 
         self.finish('Error Not found')
 
+
 class StateHandler(tornado.web.RequestHandler):
     def get(self):
         global global_state
 
         self.chain = self.get_argument('chain', 'base')
         self.page = int(self.get_argument('page', '0'))
+        self.search = self.get_argument('search', '')
+        
         try:
             self.block_number = int(self.get_argument('blockno'))
         except:
@@ -457,6 +460,55 @@ class StateHandler(tornado.web.RequestHandler):
 
         self.state_keys = []
         self.state_values = {}
+        
+        if self.search:
+            it = global_state.iteritems()
+            search_prefix = ('%s-%s' % (self.chain, self.search)).encode('utf8')
+            it.seek(search_prefix)
+            
+            skip_count = self.page * 100
+            current_count = 0
+            collected = 0
+            
+            for key, value_json in it:
+                key_str = key.decode('utf8')
+                
+                # Check if key matches search prefix pattern
+                if not key_str.startswith('%s-%s' % (self.chain, self.search)):
+                    break
+                
+                try:
+                    ks = key_str.split('-')
+                    if len(ks) < 5:  # Need at least: chain-keyname-reversed_no-block_hash-sender
+                        continue
+                    
+                    reversed_no = ks[-3]
+                    no = setting.REVERSED_NO - int(reversed_no)
+                    if no > self.block_number:
+                        continue
+                    
+                    # Skip for pagination
+                    if current_count < skip_count:
+                        current_count += 1
+                        continue
+                    
+                    if collected >= 100:
+                        break
+                    
+                    # Extract key name (everything between chain and last 3 parts)
+                    key_name = '-'.join(ks[1:-3])
+                    
+                    if key_name not in self.state_keys:
+                        self.state_keys.append(key_name)
+                        self.state_values[key_name] = (no, value_json.decode('utf8'))
+                        collected += 1
+                        current_count += 1
+                except Exception as e:
+                    continue
+            
+            self.render('template/state.html')
+            return
+        
         for i in range(100):
             # no = (str(setting.REVERSED_NO - self.block_number)).zfill(16)
             # k = ('%s_state_key-%s-%s' % (self.chain, i, no)).encode('utf8')
@@ -479,7 +531,7 @@ class StateHandler(tornado.web.RequestHandler):
 
                 it2 = global_state.iteritems()
                 k2 = ('%s-%s-%s' % (self.chain, key2, ks[2])).encode('utf8')
-                print('k2', k2)
+                # print('k2', k2)
                 it2.seek(k2)
                 for key, value_json in it2:
                     if not key.startswith(k2):
@@ -560,17 +612,26 @@ class InputHandler(tornado.web.RequestHandler):
         # self.render('template/tx.html')
         self.finish()
 
-# class HeightHandler(tornado.web.RequestHandler):
-#     def get(self):
-#         global global_state
-#         global global_input
+class HeightAPIHandler(tornado.web.RequestHandler):
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with, Content-Type")
+        self.set_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
 
-#         chain = self.get_argument('chain')
-#         # it = global_input.iteritems()
-#         height = global_input.get(('%s-height' % chain).encode('utf8'))
-#         if height:
-#             height = int(height.decode('utf8'))
-#         self.finish({'chain': chain, 'height': height})
+    def options(self):
+        # for CORS preflight
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        global global_input
+
+        chain = self.get_argument('chain')
+        height = global_input.get(('%s-height' % chain).encode('utf8'))
+        if height:
+            height = int(height.decode('utf8'))
+        self.finish({'chain': chain, 'height': height})
+
 
 # class EntryHandler(tornado.web.RequestHandler):
 #     def get(self):
@@ -747,6 +808,7 @@ class Application(tornado.web.Application):
             (r'/api/get_latest_state', GetLatestStateAPIHandler),
             (r'/api/query_recent_state', QueryRecentStateAPIHandler),
             (r'/api/events', EventsAPIHandler),
+            (r'/api/height', HeightAPIHandler),
 
             (r'/goto', GotoHandler),
             (r'/blocks', BlocksHandler),
@@ -754,7 +816,6 @@ class Application(tornado.web.Application):
             (r'/tx', TxHandler),
             (r'/state', StateHandler),
             (r'/input', InputHandler),
-            # (r'/height', HeightHandler),
             # (r'/entry', EntryHandler),
             (r'/', MainHandler),
         ]

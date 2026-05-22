@@ -1,49 +1,132 @@
-
 <nav class="bg-gray-800 py-4">
     <div class="container mx-auto flex justify-between items-center">
         <div class="flex items-center">
             <img src="/static/logo.png" alt="Blockchain Explorer" class="h-8 w-8 mr-4" />
         </div>
-        <ul class="flex items-center">
-            <!-- <li class="mr-6">
-                <a href="/" class="text-gray-300 hover:text-white">Home</a>
-            </li> -->
-            <li class="mr-6">
-                <a href="https://zentra.dev" class="text-gray-300 hover:text-white">Zentra</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://github.com/0xZentra/whitepaper" class="text-gray-300 hover:text-white">Theory</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://zentra.gitbook.io" class="text-gray-300 hover:text-white">Docs</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://x.zentra.dev/airdrop/" class="text-gray-300 hover:text-white">Airdrop</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://x.zentra.dev/bridge/" class="text-gray-300 hover:text-white">Bridge</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://x.zentra.dev/wallet/" class="text-gray-300 hover:text-white">Wallet</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://mainnet.zentra.dev" class="text-gray-300 hover:text-white">Mainnet</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://testnet3.zentra.dev" class="text-gray-300 hover:text-white">Testnet 3</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://x.com/0xZentra" class="text-gray-300 hover:text-white">Twitter</a>
-            </li>
-            <li class="mr-6">
-                <a href="https://github.com/0xZentra" class="text-gray-300 hover:text-white">Github</a>
-            </li>
-            <li class="mr-6">
-                <a href="/blocks" class="text-gray-300 hover:text-white">Blocks</a>
-            </li>
-            <li class="mr-6">
-                <a href="/state" class="text-gray-300 hover:text-white">State</a>
-            </li>
-        </ul>
+
+        <!-- Links Dropdown -->
+        <div class="group">
+            <div class="cursor-pointer text-gray-300 hover:text-white flex items-center">
+                Links
+                <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </div>
+            <ul
+                class="absolute hidden group-hover:block bg-gray-800 text-gray-300 pt-1 z-50 min-w-[160px] rounded-md shadow-lg">
+                <li><a href="https://zentra.dev" class="block px-4 py-2 hover:text-white hover:bg-gray-700">
+                        Home</a></li>
+                <li><a href="https://github.com/0xZentra/whitepaper"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Theory</a></li>
+                <li><a href="https://zentra.gitbook.io"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Doc</a></li>
+                <li><a href="https://zentra.gitbook.io"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Doc/cn</a></li>
+                <li><a href="https://x.com/0xZentra"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Twitter</a>
+                </li>
+                <li><a href="https://github.com/0xZentra"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Github</a></li>
+            </ul>
+        </div>
+
+        <!-- Mainnet Dropdown -->
+        <div class="group">
+            <div class="cursor-pointer text-gray-300 hover:text-white flex items-center">
+                Mainnet
+                <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </div>
+            <ul
+                class="absolute hidden group-hover:block bg-gray-800 text-gray-300 pt-1 z-50 min-w-[160px] rounded-md shadow-lg">
+                <li><a href="https://mainnet.zentra.dev"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Explorer</a></li>
+                <li><a href="https://x.zentra.dev/bridge/"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Bridge</a></li>
+                <li><a href="https://x.zentra.dev/wallet/"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Wallet</a></li>
+                <!-- <li><a href="https://x.zentra.dev/airdrop/"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Airdrop</a></li> -->
+            </ul>
+        </div>
+
+        <!-- Testnet3 Dropdown -->
+        <div class="group">
+            <div class="cursor-pointer text-gray-300 hover:text-white flex items-center">
+                Testnet3
+                <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </div>
+            <ul
+                class="absolute hidden group-hover:block bg-gray-800 text-gray-300 pt-1 z-50 min-w-[160px] rounded-md shadow-lg">
+                <li><a href="https://testnet3.zentra.dev"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Explorer</a></li>
+                <li><a href="https://x.zentra.dev/testnet3_wallet/"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Wallet</a></li>
+                <li><a href="https://x.zentra.dev/testnet3_faucet/"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Faucet</a></li>
+                <!-- <li><a href="https://x.zentra.dev/bridge/"
+                        class="block px-4 py-2 hover:text-white hover:bg-gray-700">Bridge</a></li> -->
+            </ul>
+        </div>
+
+        <!-- Blocks -->
+        <div class="cursor-pointer text-gray-300 hover:text-white flex items-center">
+            <a href="/blocks" class="text-gray-300 hover:text-white">Blocks</a>
+        </div>
+
+        <!-- State -->
+        <div class="cursor-pointer text-gray-300 hover:text-white flex items-center">
+            <a href="/state" class="text-gray-300 hover:text-white">State</a>
+        </div>
     </div>
 </nav>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Select all dropdown groups in the nav
+        const dropdowns = document.querySelectorAll('nav div.group');
+
+        dropdowns.forEach(function (dropdown) {
+            const trigger = dropdown.querySelector('div');
+            const menu = dropdown.querySelector('ul');
+
+            if (trigger && menu) {
+                // Click handler for the trigger
+                trigger.addEventListener('click', function (e) {
+                    e.stopPropagation(); // Prevent ensuring document click immediately closes it
+
+                    // Close other open dropdowns
+                    dropdowns.forEach(function (d) {
+                        if (d !== dropdown) {
+                            const m = d.querySelector('ul');
+                            if (m) m.classList.add('hidden');
+                        }
+                    });
+
+                    // Toggle the current menu
+                    menu.classList.toggle('hidden');
+                });
+            }
+        });
+
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function (e) {
+            dropdowns.forEach(function (dropdown) {
+                const menu = dropdown.querySelector('ul');
+                if (menu && !menu.classList.contains('hidden')) {
+                    // Check if click is inside the menu (optional, but usually clicking item navigates away)
+                    // If we want to keep it open when clicking inside:
+                    if (!dropdown.contains(e.target)) {
+                        menu.classList.add('hidden');
+                    }
+                }
+            });
+        });
+    });
+</script>
