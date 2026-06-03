@@ -8,10 +8,12 @@
 # import datetime
 # import binascii
 import json
+import time
 
 # import tornado.options
 import tornado.web
 import tornado.ioloop
+import tornado.websocket
 import tornado.httpclient
 # import tornado.gen
 # import tornado.escape
@@ -37,44 +39,48 @@ class OrderbookAPIHandler(tornado.web.RequestHandler):
 
         base = self.get_argument('base').upper()
         quote = self.get_argument('quote').upper()
+        pair = f'{base}_{quote}'
         space.info = {'chain': 'base'}
 
-        buy_start, _ = get('trade', f'{base}_{quote}_buy_start', 1)
-        # print(f'{base}_{quote}_buy_start')
-        # print('buy_start', buy_start)
         buys = []
-        buy_start0 = buy_start
-        while True:
-            buy, _ = get('trade', f'{base}_{quote}_buy', [], str(buy_start))
-            # print('buy', buy)
-            if not buy:
-                break
-            buys.append(buy)
-            if buy[4] is None:
-                break
-            buy_start = buy[4]
-
-        sell_start, _ = get('trade', f'{base}_{quote}_sell_start', 1)
-        # print(f'{base}_{quote}_sell_start')
-        # print('sell_start', sell_start)
         sells = []
-        sell_start0 = sell_start
-        while True:
-            sell, _ = get('trade', f'{base}_{quote}_sell', [], str(sell_start))
-            # print('sell', sell)
-            if not sell:
-                break
-            sells.append(sell)
-            if sell[4] is None:
-                break
-            sell_start = sell[4]
 
-        self.finish({
-            'buy_start': buy_start0,
-            'buys': buys,
-            'sell_start': sell_start0,
-            'sells': sells
-        })
+        buy_start, _ = get('trade', f'{pair}_buy_start', 1)
+        sell_start, _ = get('trade', f'{pair}_sell_start', 1)
+
+        buy_id = buy_start
+        while buy_id:
+            buy, _ = get('trade', f'{pair}_buy', None, str(buy_id))
+            if buy:
+                buys.append({
+                    'id': buy_id,
+                    'owner': buy[0],
+                    'base': str(buy[1]),
+                    'quote': str(buy[2]),
+                    'price': str(buy[3]),
+                    'next': buy[4]
+                })
+                buy_id = buy[4]
+            else:
+                break
+
+        sell_id = sell_start
+        while sell_id:
+            sell, _ = get('trade', f'{pair}_sell', None, str(sell_id))
+            if sell:
+                sells.append({
+                    'id': sell_id,
+                    'owner': sell[0],
+                    'base': str(sell[1]),
+                    'quote': str(sell[2]),
+                    'price': str(sell[3]),
+                    'next': sell[4]
+                })
+                sell_id = sell[4]
+            else:
+                break
+
+        self.finish({'buys': buys, 'sells': sells, 'pair': pair})
 
 
 class GetLatestStateAPIHandler(tornado.web.RequestHandler):
@@ -131,29 +137,45 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
 
         base = self.get_argument('base').upper()
         quote = self.get_argument('quote').upper()
+        interval = self.get_argument('interval', '1s')
         chain = 'base'
         target_pair = f"{base}_{quote}"
-        print(f"HistoryAPI: base={base}, quote={quote}, target_pair={target_pair}")
 
+        interval_seconds = {
+            '1s': 1, '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400
+        }
+        if interval not in interval_seconds:
+            interval = '1s'
+        interval_sec = interval_seconds[interval]
 
-        daily_ohlc = {}
+        start_time_arg = self.get_argument('start_time', None)
+        if start_time_arg:
+            start_time = int(start_time_arg)
+        else:
+            start_time = 0  # search all blocks
+
+        buckets = {}
+        last_trade_before_start = None
+        boundary_scanned = False
 
         block_iter = global_input.iteritems()
         block_prefix = f'{chain}-block-'.encode('utf8')
         block_iter.seek(block_prefix)
-        print(f"HistoryAPI: Seeking blocks with prefix: {block_prefix.decode()}")
 
-        block_count = 0
         for key, value_json in block_iter:
             if not key.startswith(block_prefix):
                 break
-            block_count += 1
 
             try:
                 _, _, reverse_no, block_hash = key.decode('utf8').split('-')
                 block_data = json.loads(value_json)
                 timestamp = block_data.get('timestamp', 0)
                 tx_hashes = block_data.get('transactions', [])
+
+                if timestamp < start_time:
+                    if boundary_scanned:
+                        continue
+                    boundary_scanned = True
 
                 for tx_hash in tx_hashes:
                     tx_key = f'{chain}-tx-{tx_hash}-{block_hash}'.encode('utf8')
@@ -164,63 +186,61 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
                     events = tx_data.get('events', [])
 
                     for event in events:
-                        # event: [chain, 'TradeOrderTake', pair, buy_or_sell, addr, take_amount, price, cost]
-                        if len(event) < 8 or event[1] != 'TradeOrderTake':
+                        if len(event) > 2 and event[1] not in ('TradeLimitTake', 'TradeMarketTake'):
                             continue
 
                         pair = event[2]
                         if pair != target_pair:
                             continue
 
-                        print(f"HistoryAPI: Found matching TradeOrderTake event: {event}")
-                        price = event[6] / 10**6 # Assuming price has 6 decimals
-
-                        if price == 0: # Skip if price is 0, which is the bug in zip22.py
-                            print(f"HistoryAPI: Skipping event due to price being 0: {event}")
+                        price = event[6]
+                        if price == 0:
+                            side = event[3]
+                            order_id = event[7]
+                            space.chain = 'base'
+                            order, _ = get('trade', f'{pair}_{side}', None, str(order_id))
+                            if order and len(order) >= 4:
+                                price = order[3]
+                        if price == 0:
                             continue
 
-                        # Group timestamps into 15-second intervals
-                        interval = 60
-                        time_bucket = (timestamp // interval) * interval
+                        base_amount = event[5]
+                        price_display = price / 10**6
 
-                        if time_bucket not in daily_ohlc:
-                            daily_ohlc[time_bucket] = {
-                                'open': price,
-                                'high': price,
-                                'low': price,
-                                'close': price,
-                                'first_trade_time': timestamp,
-                                'last_trade_time': timestamp,
+                        if timestamp < start_time:
+                            last_trade_before_start = {
+                                'time': timestamp,
+                                'price': price_display,
+                                'amount': base_amount,
+                                'side': event[3],
                             }
                         else:
-                            bucket_data = daily_ohlc[time_bucket]
-                            bucket_data['high'] = max(bucket_data['high'], price)
-                            bucket_data['low'] = min(bucket_data['low'], price)
-
-                            if timestamp < bucket_data['first_trade_time']:
-                                bucket_data['open'] = price
-                                bucket_data['first_trade_time'] = timestamp
-
-                            if timestamp > bucket_data['last_trade_time']:
-                                bucket_data['close'] = price
-                                bucket_data['last_trade_time'] = timestamp
+                            bucket = (timestamp // interval_sec) * interval_sec
+                            if bucket not in buckets:
+                                buckets[bucket] = {
+                                    'time': bucket,
+                                    'open': price_display,
+                                    'high': price_display,
+                                    'low': price_display,
+                                    'close': price_display,
+                                    'volume': base_amount,
+                                }
+                            else:
+                                b = buckets[bucket]
+                                b['high'] = max(b['high'], price_display)
+                                b['low'] = min(b['low'], price_display)
+                                b['close'] = price_display
+                                b['volume'] += base_amount
             except (ValueError, json.JSONDecodeError, TypeError) as e:
-                print(f"Error processing block or transaction data: {e}")
                 continue
 
-        print(f"HistoryAPI: Processed {block_count} blocks.")
-        chart_data = []
-        for second_str, ohlc in sorted(daily_ohlc.items()):
-            chart_data.append({
-                'time': second_str,
-                'open': ohlc['open'],
-                'high': ohlc['high'],
-                'low': ohlc['low'],
-                'close': ohlc['close']
-            })
+        candles = list(buckets.values())
+        candles.sort(key=lambda x: x['time'])
 
-        print(f"HistoryAPI: Returning {len(chart_data)} days of history.")
-        self.finish({'history': chart_data})
+        result = {'candles': candles, 'pair': target_pair}
+        if last_trade_before_start:
+            result['last_trade_before_start'] = last_trade_before_start
+        self.finish(result)
 
 
 class EventsAPIHandler(tornado.web.RequestHandler):
@@ -612,6 +632,12 @@ class InputHandler(tornado.web.RequestHandler):
         # self.render('template/tx.html')
         self.finish()
 
+class WSClientsHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.finish({'connected_clients': len(space.connected_clients)})
+
+
 class HeightAPIHandler(tornado.web.RequestHandler):
     def set_default_headers(self):
         self.set_header("Access-Control-Allow-Origin", "*")
@@ -631,6 +657,19 @@ class HeightAPIHandler(tornado.web.RequestHandler):
         if height:
             height = int(height.decode('utf8'))
         self.finish({'chain': chain, 'height': height})
+
+
+class WSHandler(tornado.websocket.WebSocketHandler):
+    def open(self):
+        space.connected_clients.add(self)
+        print(f'WS client connected, total: {len(space.connected_clients)}')
+
+    def on_close(self):
+        space.connected_clients.discard(self)
+        print(f'WS client disconnected, total: {len(space.connected_clients)}')
+
+    def check_origin(self, origin):
+        return True
 
 
 # class EntryHandler(tornado.web.RequestHandler):
@@ -721,7 +760,7 @@ class MainHandler(tornado.web.RequestHandler):
 async def fetch_gazer():
     global global_input
     global height
-    print('fetching gazer for height', height)
+    # print('fetching gazer for height', height)
 
     http_client = tornado.httpclient.AsyncHTTPClient()
     try:
@@ -733,7 +772,6 @@ async def fetch_gazer():
 
     blk = json.loads(response.body)
     if not blk:
-        print('No block found, waiting for 1 second')
         tornado.ioloop.IOLoop.instance().call_later(1, fetch_gazer)
         return
 
@@ -784,6 +822,34 @@ async def fetch_gazer():
                 del space.events[space.tx_index]
 
         events = space.events.get(space.tx_index, [])
+        # Broadcast trade events via WS
+        for evt in events:
+            if len(evt) > 2 and evt[1] in ('TradeLimitTake', 'TradeMarketTake'):
+                trade_pair = evt[2]
+                parts = trade_pair.split('_')
+                if len(parts) == 2:
+                    base_asset, quote_asset = parts
+                    price_raw = evt[6]
+                    if price_raw == 0:
+                        side = evt[3]
+                        if len(evt) > 7 and evt[7] is not None:
+                            order_id = evt[7]
+                            order, _ = get('trade', f'{trade_pair}_{side}', None, str(order_id))
+                            if order and len(order) >= 4:
+                                price_raw = order[3]
+                    if price_raw == 0:
+                        continue
+                    price_display = price_raw / (10**6)
+                    trade_msg = json.dumps({
+                        'type': 'trade',
+                        'timestamp': timestamp,
+                        'price': price_display,
+                        'amount': evt[5] / (10**18),
+                        'side': evt[3],
+                        'pair': trade_pair
+                    })
+                    space.broadcast(trade_msg)
+
         k = ('%s-tx-%s-%s' % (chain, tx_hash, block_hash)).encode('utf8')
         global_input.put(k, json.dumps({'block_number': block_number, 'chain': chain, 'success': success, 'events': events}).encode('utf8'))
 
@@ -794,6 +860,79 @@ async def fetch_gazer():
     global_input.put(('%s-height' % (chain)).encode('utf8'), str(block_number).encode('utf8'))
     height = block_number + 1
     tornado.ioloop.IOLoop.instance().add_callback(fetch_gazer)
+
+
+class UserOrdersAPIHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+
+        owner = self.get_argument('owner').lower()
+        space.info = {'chain': 'base'}
+
+        orders = []
+
+        pairs = set()
+        it = global_state.iteritems()
+        prefix = 'base-trade-'.encode('utf8')
+        it.seek(prefix)
+        for key, _ in it:
+            if not key.startswith(prefix):
+                break
+            key_str = key.decode('utf8')
+            parts = key_str.split('-')
+            if len(parts) < 3:
+                continue
+            var = parts[2]
+            for suffix in ('_buy_start', '_buy:', '_sell_start', '_sell:'):
+                idx = var.find(suffix)
+                if idx != -1:
+                    pairs.add(var[:idx])
+                    break
+
+        for pair in pairs:
+            buy_start, _ = get('trade', f'{pair}_buy_start', 1)
+            buy_id = buy_start
+            while buy_id:
+                buy, _ = get('trade', f'{pair}_buy', None, str(buy_id))
+                if buy:
+                    if buy[0].lower() == owner:
+                        orders.append({
+                            'id': buy_id,
+                            'side': 'buy',
+                            'pair': pair,
+                            'owner': buy[0],
+                            'base': str(buy[1]),
+                            'quote': str(buy[2]),
+                            'price': str(buy[3]),
+                            'next': buy[4]
+                        })
+                    buy_id = buy[4]
+                else:
+                    break
+
+            sell_start, _ = get('trade', f'{pair}_sell_start', 1)
+            sell_id = sell_start
+            while sell_id:
+                sell, _ = get('trade', f'{pair}_sell', None, str(sell_id))
+                if sell:
+                    if sell[0].lower() == owner:
+                        orders.append({
+                            'id': sell_id,
+                            'side': 'sell',
+                            'pair': pair,
+                            'owner': sell[0],
+                            'base': str(sell[1]),
+                            'quote': str(sell[2]),
+                            'price': str(sell[3]),
+                            'next': sell[4]
+                        })
+                    sell_id = sell[4]
+                else:
+                    break
+
+        self.finish({'orders': orders, 'owner': owner})
 
 
 class Application(tornado.web.Application):
@@ -809,6 +948,9 @@ class Application(tornado.web.Application):
             (r'/api/query_recent_state', QueryRecentStateAPIHandler),
             (r'/api/events', EventsAPIHandler),
             (r'/api/height', HeightAPIHandler),
+            (r'/api/ws_clients', WSClientsHandler),
+            (r'/api/user_orders', UserOrdersAPIHandler),
+            (r'/ws', WSHandler),
 
             (r'/goto', GotoHandler),
             (r'/blocks', BlocksHandler),

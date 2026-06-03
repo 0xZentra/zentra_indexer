@@ -8,10 +8,10 @@ import threading
 import random
 
 import web3
+from web3.middleware import ExtraDataToPOAMiddleware as geth_poa_middleware
 import hexbytes
 import eth_abi
 import rocksdb
-# import requests
 
 import tornado.web
 import tornado.ioloop
@@ -39,7 +39,7 @@ if '-d' in sys.argv:
 w3s = []
 for i in PROVIDER_HOSTS:
     w3 = web3.Web3(web3.Web3.HTTPProvider(i))
-    w3.middleware_onion.inject(web3.middleware.geth_poa_middleware, layer=0)
+    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
     w3s.append(w3)
 
 
