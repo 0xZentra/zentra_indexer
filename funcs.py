@@ -124,8 +124,25 @@ def process(info, args):
     space.chain = chain
     assert args['p'] == 'zentest3'
 
+    # Multi-call chain format: {'p':'zentest3', 'c':[['f1', [a1]], ['f2', [a2], ...]]}
+    if 'c' in args and block_number >= setting.MULTI_CALL_HEIGHT:
+        for call_item in args['c']:
+            if not isinstance(call_item, list) or len(call_item) < 1:
+                continue
+            func_name = call_item[0]
+            func_args = call_item[1] if len(call_item) > 1 else []
+            success = _process(info, func_name, func_args)
+            if not success:
+                return False
+        return True
+
+    return _process(info, args.get('f', ''), args.get('a', []))
+
+
+def _process(info, func_name, func_args):
+    args = {'p': 'zentest3', 'f': func_name, 'a': func_args}
+
     v = None
-    func_name = args.get('f', '')
     if func_name in space.global_funcs:
         key = space.global_funcs[func_name]
         v = space.global_snippets[key]
@@ -178,13 +195,13 @@ def process(info, args):
     success = True
     if v:
         success = v.run([info, args], function_name = func_name)
-    elif args.get('f') == 'function_vote':
+    elif func_name == 'function_vote':
         function_vote(info, args)
-    elif args.get('f') == 'function_proposal':
+    elif func_name == 'function_proposal':
         function_proposal(info, args)
-    elif args.get('f') == 'function_snippet':
+    elif func_name == 'function_snippet':
         function_snippet(info, args)
-    elif args.get('f') == 'committee_init':
+    elif func_name == 'committee_init':
         committee_init(info, args)
 
     return success

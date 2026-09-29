@@ -126,7 +126,7 @@ def get(_asset, _var, _default = None, _key = None):
         var = _var
 
     k = '%s-%s' % (asset_name, var)
-    # print('get', k, 'tx_index', tx_index)
+    print('get', k, 'tx_index', tx_index)
     for i in reversed(state_indexes):
         state = states.get(i, {})
         v = state.get(k)
@@ -142,7 +142,7 @@ def get(_asset, _var, _default = None, _key = None):
         if key.startswith(k.encode('utf8')):
             value = tornado.escape.json_decode(value_json)
             addr = key.decode('utf8').split('-')[-1]
-            print('get key', key, addr)
+            print('get key', key, 'owner', addr)
         break
 
     return value, addr

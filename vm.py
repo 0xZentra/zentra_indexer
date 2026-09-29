@@ -104,6 +104,7 @@ class VM:
         self.global_vars['pow'] = pow
         self.global_vars['iter'] = iter
         self.global_vars['next'] = next
+        self.global_vars['isinstance'] = isinstance
         # self.global_vars['open'] = open
         self.global_vars['AssertionError'] = AssertionError
         self.native_vars.add(type)
@@ -120,6 +121,7 @@ class VM:
         self.native_vars.add(pow)
         self.native_vars.add(iter)
         self.native_vars.add(next)
+        self.native_vars.add(isinstance)
 
         assert self.code.co_argcount == len(args)
         assert self.code.co_code

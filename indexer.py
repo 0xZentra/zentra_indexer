@@ -30,8 +30,10 @@ global_state = database.get_conn()
 # pending_state = database.get_temp_conn()
 global_input = database.get_conn_tx()
 
+stats_cache = {}
 
-class OrderbookAPIHandler(tornado.web.RequestHandler):
+
+class SpotOrderbookAPIHandler(tornado.web.RequestHandler):
     def get(self):
         self.set_header("Access-Control-Allow-Origin", "*")
         self.set_header("Access-Control-Allow-Headers", "x-requested-with")
@@ -152,11 +154,10 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
         if start_time_arg:
             start_time = int(start_time_arg)
         else:
-            start_time = 0  # search all blocks
+            start_time = int(time.time()) - interval_sec * 300
 
         buckets = {}
         last_trade_before_start = None
-        boundary_scanned = False
 
         block_iter = global_input.iteritems()
         block_prefix = f'{chain}-block-'.encode('utf8')
@@ -173,9 +174,8 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
                 tx_hashes = block_data.get('transactions', [])
 
                 if timestamp < start_time:
-                    if boundary_scanned:
+                    if last_trade_before_start is not None:
                         continue
-                    boundary_scanned = True
 
                 for tx_hash in tx_hashes:
                     tx_key = f'{chain}-tx-{tx_hash}-{block_hash}'.encode('utf8')
@@ -240,6 +240,167 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
         result = {'candles': candles, 'pair': target_pair}
         if last_trade_before_start:
             result['last_trade_before_start'] = last_trade_before_start
+        self.finish(result)
+
+
+class PredictOrderbookAPIHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+
+        slug = self.get_argument('slug', 'btc_5min')
+
+        def side_book(token, side):
+            new, _ = get('predict', f'{slug}_{token}_{side}_new', None)
+            orders = []
+            if new is None:
+                return orders
+            for oid in range(1, int(new)):
+                order, _ = get('predict', f'{slug}_{token}_{side}', None, str(oid))
+                if not order or len(order) < 4:
+                    continue
+                if order[1] == 0:
+                    continue
+                price = int(order[3])
+                if price <= 0:
+                    continue
+                orders.append({
+                    'id': oid,
+                    'owner': order[0],
+                    'base': str(order[1]),
+                    'quote': str(order[2]),
+                    'price': str(price),
+                })
+            return orders
+
+        result = {}
+        for token in ['yes', 'no']:
+            sells = sorted(side_book(token, 'sell'), key=lambda o: int(o['price']))
+            buys = sorted(side_book(token, 'buy'), key=lambda o: -int(o['price']))
+            result[token] = {
+                'bestAsk': str(int(sells[0]['price']) / 10**18) if sells else None,
+                'bestBid': str(int(buys[0]['price']) / 10**18) if buys else None,
+                'asks': sells,
+                'bids': buys,
+            }
+
+        self.finish({'slug': slug, 'result': result})
+
+
+class Stats24hAPIHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+
+        base = self.get_argument('base').upper()
+        quote = self.get_argument('quote').upper()
+        target_pair = f"{base}_{quote}"
+
+        global stats_cache
+        cached = stats_cache.get(target_pair)
+        if cached and time.time() - cached['_ts'] < 60:
+            resp = {k: v for k, v in cached.items() if k != '_ts'}
+            self.finish(resp)
+            return
+
+        now = int(time.time())
+        start_time = now - 86400
+
+        high = 0.0
+        low = float('inf')
+        volume = 0.0
+        open_price = None
+        close_price = None
+        trade_count = 0
+
+        block_iter = global_input.iteritems()
+        block_prefix = f'base-block-'.encode('utf8')
+        block_iter.seek(block_prefix)
+
+        for key, value_json in block_iter:
+            if not key.startswith(block_prefix):
+                break
+
+            try:
+                _, _, reverse_no, block_hash = key.decode('utf8').split('-')
+                block_data = json.loads(value_json)
+                timestamp = block_data.get('timestamp', 0)
+
+                if timestamp < start_time:
+                    continue
+                if timestamp > now:
+                    continue
+
+                tx_hashes = block_data.get('transactions', [])
+
+                for tx_hash in tx_hashes:
+                    tx_key = f'base-tx-{tx_hash}-{block_hash}'.encode('utf8')
+                    tx_value_json = global_input.get(tx_key)
+                    if not tx_value_json:
+                        continue
+                    tx_data = json.loads(tx_value_json)
+                    events = tx_data.get('events', [])
+
+                    for event in events:
+                        if len(event) > 2 and event[1] not in ('TradeLimitTake', 'TradeMarketTake'):
+                            continue
+
+                        pair = event[2]
+                        if pair != target_pair:
+                            continue
+
+                        price = event[6]
+                        if price == 0:
+                            side = event[3]
+                            order_id = event[7]
+                            space.chain = 'base'
+                            order, _ = get('trade', f'{pair}_{side}', None, str(order_id))
+                            if order and len(order) >= 4:
+                                price = order[3]
+                        if price == 0:
+                            continue
+
+                        base_amount = event[5]
+                        price_display = price / 10**6
+                        base_amount_display = base_amount / 10**18
+
+                        if open_price is None:
+                            open_price = price_display
+                        close_price = price_display
+
+                        high = max(high, price_display)
+                        low = min(low, price_display)
+                        volume += base_amount_display
+                        trade_count += 1
+
+            except (ValueError, json.JSONDecodeError, TypeError) as e:
+                continue
+
+        if low == float('inf'):
+            low = 0.0
+
+        change = 0.0
+        change_percent = 0.0
+        if open_price and open_price > 0:
+            change = close_price - open_price
+            change_percent = (change / open_price) * 100
+
+        result = {
+            'pair': target_pair,
+            'high': high,
+            'low': low,
+            'volume': volume,
+            'open': open_price or 0,
+            'close': close_price or 0,
+            'change': change,
+            'change_percent': change_percent,
+            'trade_count': trade_count,
+            'period_start': start_time,
+            'period_end': now,
+        }
+        stats_cache[target_pair] = {**result, '_ts': now}
         self.finish(result)
 
 
@@ -800,7 +961,10 @@ async def fetch_gazer():
         space.info = info
 
         args = data[1]
-        func_name = args.get('f')
+        if 'c' in args:
+            func_name = args['c'][0][0] if args['c'] else ''
+        else:
+            func_name = args.get('f', '')
         space.func_name = func_name
         tx_hash = info['tx_hash'].replace('0x', '')
         k = ('%s-blocktx-%s-%s' % (chain, block_hash, tx_hash)).encode('utf8')
@@ -941,8 +1105,11 @@ class Application(tornado.web.Application):
             (r'/(favicon\.ico)', tornado.web.StaticFileHandler, {'path': 'static/'}),
             (r'/static/(.*)', tornado.web.StaticFileHandler, {'path': 'static/'}),
 
-            (r'/api/orderbook', OrderbookAPIHandler),
+            (r'/api/orderbook', SpotOrderbookAPIHandler),
+            (r'/api/spot_orderbook', SpotOrderbookAPIHandler),
+            (r'/api/predict_orderbook', PredictOrderbookAPIHandler),
             (r'/api/history', HistoryAPIHandler),
+            (r'/api/stats_24h', Stats24hAPIHandler),
 
             (r'/api/get_latest_state', GetLatestStateAPIHandler),
             (r'/api/query_recent_state', QueryRecentStateAPIHandler),
