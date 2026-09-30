@@ -31,7 +31,6 @@ chain = None
 block_hash = None
 block_number = None
 func_name = None
-connected_clients = set()
 
 def _get_state_len(chain):
     it = global_state.iteritems()
@@ -368,20 +367,8 @@ def call(fn, params):
     print('info', info)
     global states
     print('states', states)
-    arg = {'p': 'zentest3', 'f': fn, 'a': params}
+    arg = {'p': 'zen', 'f': fn, 'a': params}
     funcs.process(info, arg)
-
-
-def broadcast(message):
-    to_remove = set()
-    for client in connected_clients:
-        try:
-            client.write_message(message)
-        except Exception as e:
-            print(f"Broadcast error: {e}")
-            to_remove.add(client)
-    for c in to_remove:
-        connected_clients.discard(c)
 
 
 def handle_resolve(_handle):

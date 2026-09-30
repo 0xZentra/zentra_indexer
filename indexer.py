@@ -793,12 +793,6 @@ class InputHandler(tornado.web.RequestHandler):
         # self.render('template/tx.html')
         self.finish()
 
-class WSClientsHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.set_header("Access-Control-Allow-Origin", "*")
-        self.finish({'connected_clients': len(space.connected_clients)})
-
-
 class HeightAPIHandler(tornado.web.RequestHandler):
     def set_default_headers(self):
         self.set_header("Access-Control-Allow-Origin", "*")
@@ -818,20 +812,6 @@ class HeightAPIHandler(tornado.web.RequestHandler):
         if height:
             height = int(height.decode('utf8'))
         self.finish({'chain': chain, 'height': height})
-
-
-class WSHandler(tornado.websocket.WebSocketHandler):
-    def open(self):
-        space.connected_clients.add(self)
-        print(f'WS client connected, total: {len(space.connected_clients)}')
-
-    def on_close(self):
-        space.connected_clients.discard(self)
-        print(f'WS client disconnected, total: {len(space.connected_clients)}')
-
-    def check_origin(self, origin):
-        return True
-
 
 # class EntryHandler(tornado.web.RequestHandler):
 #     def get(self):
@@ -1026,79 +1006,6 @@ async def fetch_gazer():
     tornado.ioloop.IOLoop.instance().add_callback(fetch_gazer)
 
 
-class UserOrdersAPIHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.set_header("Access-Control-Allow-Origin", "*")
-        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
-        self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
-
-        owner = self.get_argument('owner').lower()
-        space.info = {'chain': 'base'}
-
-        orders = []
-
-        pairs = set()
-        it = global_state.iteritems()
-        prefix = 'base-trade-'.encode('utf8')
-        it.seek(prefix)
-        for key, _ in it:
-            if not key.startswith(prefix):
-                break
-            key_str = key.decode('utf8')
-            parts = key_str.split('-')
-            if len(parts) < 3:
-                continue
-            var = parts[2]
-            for suffix in ('_buy_start', '_buy:', '_sell_start', '_sell:'):
-                idx = var.find(suffix)
-                if idx != -1:
-                    pairs.add(var[:idx])
-                    break
-
-        for pair in pairs:
-            buy_start, _ = get('trade', f'{pair}_buy_start', 1)
-            buy_id = buy_start
-            while buy_id:
-                buy, _ = get('trade', f'{pair}_buy', None, str(buy_id))
-                if buy:
-                    if buy[0].lower() == owner:
-                        orders.append({
-                            'id': buy_id,
-                            'side': 'buy',
-                            'pair': pair,
-                            'owner': buy[0],
-                            'base': str(buy[1]),
-                            'quote': str(buy[2]),
-                            'price': str(buy[3]),
-                            'next': buy[4]
-                        })
-                    buy_id = buy[4]
-                else:
-                    break
-
-            sell_start, _ = get('trade', f'{pair}_sell_start', 1)
-            sell_id = sell_start
-            while sell_id:
-                sell, _ = get('trade', f'{pair}_sell', None, str(sell_id))
-                if sell:
-                    if sell[0].lower() == owner:
-                        orders.append({
-                            'id': sell_id,
-                            'side': 'sell',
-                            'pair': pair,
-                            'owner': sell[0],
-                            'base': str(sell[1]),
-                            'quote': str(sell[2]),
-                            'price': str(sell[3]),
-                            'next': sell[4]
-                        })
-                    sell_id = sell[4]
-                else:
-                    break
-
-        self.finish({'orders': orders, 'owner': owner})
-
-
 class Application(tornado.web.Application):
     def __init__(self):
         handlers = [
@@ -1115,9 +1022,6 @@ class Application(tornado.web.Application):
             (r'/api/query_recent_state', QueryRecentStateAPIHandler),
             (r'/api/events', EventsAPIHandler),
             (r'/api/height', HeightAPIHandler),
-            (r'/api/ws_clients', WSClientsHandler),
-            (r'/api/user_orders', UserOrdersAPIHandler),
-            (r'/ws', WSHandler),
 
             (r'/goto', GotoHandler),
             (r'/blocks', BlocksHandler),

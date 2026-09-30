@@ -122,9 +122,9 @@ def process(info, args):
     # _block_hash = info['block_hash']
     chain = info['chain']
     space.chain = chain
-    assert args['p'] == 'zentest3'
+    assert args['p'] == 'zen'
 
-    # Multi-call chain format: {'p':'zentest3', 'c':[['f1', [a1]], ['f2', [a2], ...]]}
+    # Multi-call chain format: {'p':'zen', 'c':[['f1', [a1]], ['f2', [a2], ...]]}
     if 'c' in args and block_number >= setting.MULTI_CALL_HEIGHT:
         for call_item in args['c']:
             if not isinstance(call_item, list) or len(call_item) < 1:
@@ -140,7 +140,7 @@ def process(info, args):
 
 
 def _process(info, func_name, func_args):
-    args = {'p': 'zentest3', 'f': func_name, 'a': func_args}
+    args = {'p': 'zen', 'f': func_name, 'a': func_args}
 
     v = None
     if func_name in space.global_funcs:

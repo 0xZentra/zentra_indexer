@@ -8,13 +8,6 @@ import threading
 import random
 
 import web3
-try:
-    from web3.middleware import ExtraDataToPOAMiddleware as geth_poa_middleware
-except ImportError:
-    try:
-        from web3.middleware import geth_poa_middleware
-    except ImportError:
-        from web3.middleware import geth_poa as geth_poa_middleware
 import hexbytes
 import eth_abi
 import rocksdb
@@ -48,12 +41,12 @@ if '-d' in sys.argv:
 w3s = []
 for i in PROVIDER_HOSTS:
     w3 = web3.Web3(web3.Web3.HTTPProvider(i))
-    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    w3.middleware_onion.inject(web3.middleware.geth_poa_middleware, layer=0)
     w3s.append(w3)
 
 
 block_cache = {}
-from_block = setting.INIT_HEIGHT # testnet3
+from_block = setting.INIT_HEIGHT # mainnet
 if '-d' in sys.argv:
     from_block = 1
 
@@ -264,12 +257,12 @@ def process_block(block):
                 if type(input) is list:
                     for args in input:
                         try:
-                            if args.get('p') == 'zentest3':
+                            if args.get('p') == 'zen':
                                 blk['txs'].append([info, args])
                         except:
                             pass
                 else:
-                    if input.get('p') == 'zentest3':
+                    if input.get('p') == 'zen':
                         try:
                             blk['txs'].append([info, input])
                         except:
@@ -319,7 +312,7 @@ def main():
         w3 = random.choice(w3s)
         latest_block = w3.eth.get_block_number()
     except:
-        tornado.ioloop.IOLoop.instance().call_later(8, main)
+        tornado.ioloop.IOLoop.instance().call_later(5, main)
         return
 
     print(current_block, fetch_height, latest_block, latest_block - current_block)
@@ -330,7 +323,7 @@ def main():
     if fetch_height <= latest_block:
         print(threading.active_count(), block_cache.keys())
         if threading.active_count() < 5 and len(block_cache.keys()) < 7:
-            to_height = min(fetch_height+3, latest_block+1)
+            to_height = min(fetch_height+4, latest_block+1)
             for i in range(fetch_height, to_height):
                 thread = threading.Thread(target=fetch_block, args=[i])
                 thread.start()
