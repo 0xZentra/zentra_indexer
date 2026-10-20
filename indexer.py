@@ -43,16 +43,17 @@ class SpotOrderbookAPIHandler(tornado.web.RequestHandler):
         quote = self.get_argument('quote').upper()
         pair = f'{base}_{quote}'
         space.info = {'chain': 'base'}
+        space.chain = 'base'
 
         buys = []
         sells = []
 
-        buy_start, _ = get('trade', f'{pair}_buy_start', 1)
-        sell_start, _ = get('trade', f'{pair}_sell_start', 1)
+        buy_start, _ = get('spot', f'{pair}_buy_start', 1)
+        sell_start, _ = get('spot', f'{pair}_sell_start', 1)
 
         buy_id = buy_start
         while buy_id:
-            buy, _ = get('trade', f'{pair}_buy', None, str(buy_id))
+            buy, _ = get('spot', f'{pair}_buy', None, str(buy_id))
             if buy:
                 buys.append({
                     'id': buy_id,
@@ -68,7 +69,7 @@ class SpotOrderbookAPIHandler(tornado.web.RequestHandler):
 
         sell_id = sell_start
         while sell_id:
-            sell, _ = get('trade', f'{pair}_sell', None, str(sell_id))
+            sell, _ = get('spot', f'{pair}_sell', None, str(sell_id))
             if sell:
                 sells.append({
                     'id': sell_id,
@@ -186,7 +187,7 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
                     events = tx_data.get('events', [])
 
                     for event in events:
-                        if len(event) > 2 and event[1] not in ('TradeLimitTake', 'TradeMarketTake'):
+                        if len(event) > 2 and event[1] not in ('SpotLimitTake', 'SpotMarketTake'):
                             continue
 
                         pair = event[2]
@@ -198,7 +199,7 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
                             side = event[3]
                             order_id = event[7]
                             space.chain = 'base'
-                            order, _ = get('trade', f'{pair}_{side}', None, str(order_id))
+                            order, _ = get('spot', f'{pair}_{side}', None, str(order_id))
                             if order and len(order) >= 4:
                                 price = order[3]
                         if price == 0:
@@ -344,7 +345,7 @@ class Stats24hAPIHandler(tornado.web.RequestHandler):
                     events = tx_data.get('events', [])
 
                     for event in events:
-                        if len(event) > 2 and event[1] not in ('TradeLimitTake', 'TradeMarketTake'):
+                        if len(event) > 2 and event[1] not in ('SpotLimitTake', 'SpotMarketTake'):
                             continue
 
                         pair = event[2]
@@ -356,7 +357,7 @@ class Stats24hAPIHandler(tornado.web.RequestHandler):
                             side = event[3]
                             order_id = event[7]
                             space.chain = 'base'
-                            order, _ = get('trade', f'{pair}_{side}', None, str(order_id))
+                            order, _ = get('spot', f'{pair}_{side}', None, str(order_id))
                             if order and len(order) >= 4:
                                 price = order[3]
                         if price == 0:
@@ -555,12 +556,15 @@ class TxHandler(tornado.web.RequestHandler):
             self.events = value['events']
             break
 
-        it.seek(('%s-blocktx-%s-' % (self.chain, self.block_hash)).encode('utf8'))
+        blocktx_prefix = ('%s-blocktx-%s-' % (self.chain, self.block_hash)).encode('utf8')
+        it.seek(blocktx_prefix)
         for key, value_json in it:
             # print('blocktx', key)
-            if not key.startswith(('%s-blocktx-%s-' % (self.chain, self.block_hash)).encode('utf8')):
+            if not key.startswith(blocktx_prefix):
                 break
             # self.write('%s %s<br>' % (key, value_json))
+            if key.decode('utf8').split('-')[-1] != tx_hash:
+                continue
             value = json.loads(value_json)
             self.block_number = value['info']['block_number']
             self.tx_index = value['info']['tx_index']
@@ -725,6 +729,105 @@ class StateHandler(tornado.web.RequestHandler):
 
         # print('state_values', self.state_values)
         self.render('template/state.html')
+
+
+class FunctionsHandler(tornado.web.RequestHandler):
+    def get(self):
+        global global_state
+        self.chain = self.get_argument('chain', 'base')
+        assert self.chain in setting.chains
+
+        self.functions = []
+        seen = set()
+
+        it = global_state.iteritems()
+        prefix = ('%s-function-code:' % self.chain).encode('utf8')
+        it.seek(prefix)
+        for key, value_json in it:
+            if not key.startswith(prefix):
+                break
+            ks = key.decode('utf8').split('-')
+            # {chain}-function-code:{name}-{reversed_no}-{block_hash}-{owner}
+            if len(ks) < 6:
+                continue
+            name = ks[2].split(':', 1)[-1]
+            if name in seen:
+                continue
+            seen.add(name)
+            try:
+                block_number = setting.REVERSED_NO - int(ks[3])
+            except Exception:
+                block_number = None
+            try:
+                value = json.loads(value_json)
+            except Exception:
+                value = {}
+            if not isinstance(value, dict):
+                # latest version is removed / null
+                continue
+            self.functions.append({
+                'name': name,
+                'snippets': value.get('snippets', []),
+                'block_number': block_number,
+            })
+
+        self.functions.sort(key=lambda f: f['name'])
+        self.render('template/functions.html')
+
+
+class FunctionHandler(tornado.web.RequestHandler):
+    def get(self):
+        global global_state
+        self.chain = self.get_argument('chain', 'base')
+        assert self.chain in setting.chains
+        self.name = self.get_argument('name')
+
+        self.snippets = []
+        self.source = ''
+        self.block_number = None
+        self.not_found = False
+
+        prefix = ('%s-function-code:%s-' % (self.chain, self.name)).encode('utf8')
+        it = global_state.iteritems()
+        it.seek(prefix)
+        code = None
+        for key, value_json in it:
+            if not key.startswith(prefix):
+                break
+            ks = key.decode('utf8').split('-')
+            try:
+                self.block_number = setting.REVERSED_NO - int(ks[3])
+            except Exception:
+                self.block_number = None
+            try:
+                code = json.loads(value_json)
+            except Exception:
+                code = None
+            break
+
+        if code:
+            self.snippets = code.get('snippets', []) if isinstance(code, dict) else []
+            parts = []
+            for snippet_hash in self.snippets:
+                sprefix = ('%s-function-snippet:%s-' % (self.chain, snippet_hash)).encode('utf8')
+                it2 = global_state.iteritems()
+                it2.seek(sprefix)
+                for key2, value_json2 in it2:
+                    if not key2.startswith(sprefix):
+                        break
+                    try:
+                        snippet = json.loads(value_json2)
+                    except Exception:
+                        snippet = {}
+                    if not isinstance(snippet, dict):
+                        snippet = {}
+                    parts.append(snippet.get('snippet', ''))
+                    break
+            self.source = '\n'.join(parts)
+        else:
+            self.not_found = True
+
+        self.render('template/function.html')
 
 
 class InputHandler(tornado.web.RequestHandler):
@@ -988,7 +1091,7 @@ async def fetch_gazer():
         events = space.events.get(space.tx_index, [])
         # Broadcast trade events via WS
         for evt in events:
-            if len(evt) > 2 and evt[1] in ('TradeLimitTake', 'TradeMarketTake'):
+            if len(evt) > 2 and evt[1] in ('SpotLimitTake', 'SpotMarketTake'):
                 trade_pair = evt[2]
                 parts = trade_pair.split('_')
                 if len(parts) == 2:
@@ -998,7 +1101,7 @@ async def fetch_gazer():
                         side = evt[3]
                         if len(evt) > 7 and evt[7] is not None:
                             order_id = evt[7]
-                            order, _ = get('trade', f'{trade_pair}_{side}', None, str(order_id))
+                            order, _ = get('spot', f'{trade_pair}_{side}', None, str(order_id))
                             if order and len(order) >= 4:
                                 price_raw = order[3]
                     if price_raw == 0:
@@ -1039,7 +1142,7 @@ class UserOrdersAPIHandler(tornado.web.RequestHandler):
 
         pairs = set()
         it = global_state.iteritems()
-        prefix = 'base-trade-'.encode('utf8')
+        prefix = 'base-spot-'.encode('utf8')
         it.seek(prefix)
         for key, _ in it:
             if not key.startswith(prefix):
@@ -1056,10 +1159,10 @@ class UserOrdersAPIHandler(tornado.web.RequestHandler):
                     break
 
         for pair in pairs:
-            buy_start, _ = get('trade', f'{pair}_buy_start', 1)
+            buy_start, _ = get('spot', f'{pair}_buy_start', 1)
             buy_id = buy_start
             while buy_id:
-                buy, _ = get('trade', f'{pair}_buy', None, str(buy_id))
+                buy, _ = get('spot', f'{pair}_buy', None, str(buy_id))
                 if buy:
                     if buy[0].lower() == owner:
                         orders.append({
@@ -1076,10 +1179,10 @@ class UserOrdersAPIHandler(tornado.web.RequestHandler):
                 else:
                     break
 
-            sell_start, _ = get('trade', f'{pair}_sell_start', 1)
+            sell_start, _ = get('spot', f'{pair}_sell_start', 1)
             sell_id = sell_start
             while sell_id:
-                sell, _ = get('trade', f'{pair}_sell', None, str(sell_id))
+                sell, _ = get('spot', f'{pair}_sell', None, str(sell_id))
                 if sell:
                     if sell[0].lower() == owner:
                         orders.append({
@@ -1105,7 +1208,6 @@ class Application(tornado.web.Application):
             (r'/(favicon\.ico)', tornado.web.StaticFileHandler, {'path': 'static/'}),
             (r'/static/(.*)', tornado.web.StaticFileHandler, {'path': 'static/'}),
 
-            (r'/api/orderbook', SpotOrderbookAPIHandler),
             (r'/api/spot_orderbook', SpotOrderbookAPIHandler),
             (r'/api/predict_orderbook', PredictOrderbookAPIHandler),
             (r'/api/history', HistoryAPIHandler),
@@ -1124,6 +1226,8 @@ class Application(tornado.web.Application):
             (r'/block', BlockHandler),
             (r'/tx', TxHandler),
             (r'/state', StateHandler),
+            (r'/functions', FunctionsHandler),
+            (r'/function', FunctionHandler),
             (r'/input', InputHandler),
             # (r'/entry', EntryHandler),
             (r'/', MainHandler),

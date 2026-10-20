@@ -1,0 +1,48 @@
+<html>
+<head>
+    <title>{{ handler.name }} - Zentra Explorer</title>
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    {% include 'nav.html' %}
+
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+            <h2 class="text-2xl font-bold mb-4">Function: <span class="font-mono">{{ handler.name }}</span></h2>
+            <hr>
+
+            {% if handler.not_found %}
+            <p class="text-red-500 my-4">Function "{{ handler.name }}" not found on chain.</p>
+            <a href="/functions?chain={{ handler.chain }}" class="text-orange-500 hover:text-orange-600">&larr; Back to Functions</a>
+            {% else %}
+
+            <div class="flex flex-wrap gap-4 my-4 text-sm">
+                {% if handler.block_number is not None %}
+                <div>
+                    <span class="text-gray-500">Registered at block:</span>
+                    <span class="font-mono">#{{ handler.block_number }}</span>
+                </div>
+                {% end if %}
+                {% if handler.snippets %}
+                <div>
+                    <span class="text-gray-500">Snippets:</span>
+                    {% for h in handler.snippets %}
+                    <a href="/state?chain={{ handler.chain }}&search=function-snippet:{{ h }}" class="font-mono text-orange-500 hover:text-orange-600 mr-2">{{ h[:12] }}...</a>
+                    {% end for %}
+                </div>
+                {% end if %}
+            </div>
+
+            <h3 class="text-xl font-bold mb-2 mt-6">Source Code</h3>
+            <pre class="bg-gray-100 p-4 rounded-md text-sm overflow-x-auto"><code class="language-python">{{ handler.source }}</code></pre>
+
+            <a href="/functions?chain={{ handler.chain }}" class="inline-block mt-6 text-orange-500 hover:text-orange-600">&larr; Back to Functions</a>
+            {% end if %}
+        </div>
+    </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</body>
+</html>
