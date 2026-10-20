@@ -33,6 +33,24 @@ global_input = database.get_conn_tx()
 stats_cache = {}
 
 
+def _iter_tx_records(chain, tx_hash, block_hash):
+    """Yield tx-record values for every zen sub-index of one L1 tx.
+
+    Key format: {chain}-tx-{tx_hash}-{block_hash}      (sub 0, legacy)
+                {chain}-tx-{tx_hash}-{block_hash}-{sub} (sub >= 1)
+    """
+    prefix = ('%s-tx-%s-%s' % (chain, tx_hash, block_hash)).encode('utf8')
+    it = global_input.iteritems()
+    it.seek(prefix)
+    for key, value_json in it:
+        if not key.startswith(prefix):
+            break
+        tail = key.decode('utf8')[len(prefix):]
+        if tail and not (tail.startswith('-') and tail[1:].isdigit()):
+            continue
+        yield json.loads(value_json)
+
+
 class SpotOrderbookAPIHandler(tornado.web.RequestHandler):
     def get(self):
         self.set_header("Access-Control-Allow-Origin", "*")
@@ -179,12 +197,9 @@ class HistoryAPIHandler(tornado.web.RequestHandler):
                         continue
 
                 for tx_hash in tx_hashes:
-                    tx_key = f'{chain}-tx-{tx_hash}-{block_hash}'.encode('utf8')
-                    tx_value_json = global_input.get(tx_key)
-                    if not tx_value_json:
-                        continue
-                    tx_data = json.loads(tx_value_json)
-                    events = tx_data.get('events', [])
+                    events = []
+                    for tx_data in _iter_tx_records(chain, tx_hash, block_hash):
+                        events.extend(tx_data.get('events', []))
 
                     for event in events:
                         if len(event) > 2 and event[1] not in ('SpotLimitTake', 'SpotMarketTake'):
@@ -337,12 +352,9 @@ class Stats24hAPIHandler(tornado.web.RequestHandler):
                 tx_hashes = block_data.get('transactions', [])
 
                 for tx_hash in tx_hashes:
-                    tx_key = f'base-tx-{tx_hash}-{block_hash}'.encode('utf8')
-                    tx_value_json = global_input.get(tx_key)
-                    if not tx_value_json:
-                        continue
-                    tx_data = json.loads(tx_value_json)
-                    events = tx_data.get('events', [])
+                    events = []
+                    for tx_data in _iter_tx_records('base', tx_hash, block_hash):
+                        events.extend(tx_data.get('events', []))
 
                     for event in events:
                         if len(event) > 2 and event[1] not in ('SpotLimitTake', 'SpotMarketTake'):
@@ -460,7 +472,6 @@ class EventsAPIHandler(tornado.web.RequestHandler):
                         break
                     tx = json.loads(value_json1)
                     events.append([tx_hash, tx['events']])
-                    break
 
             break
 
@@ -500,7 +511,11 @@ class BlocksHandler(tornado.web.RequestHandler):
                 if not key.startswith(k.encode('utf8')):
                     break
                 print('block2', key)
-                _, _, block_hash, tx_hash  = key.decode('utf8').split('-')
+                # {chain}-blocktx-{block_hash}-{tx_hash}[-{sub}]
+                parts = key.decode('utf8').split('-')
+                if len(parts) < 4:
+                    continue
+                tx_hash = parts[3]
                 self.recent_transactions.append([tx_hash, block_hash])
                 c += 1
                 if c >= 20:
@@ -529,8 +544,17 @@ class BlockHandler(tornado.web.RequestHandler):
             # self.write('%s %s<br>' % (key, value_json))
             value = json.loads(value_json)
             self.block_number = value['info']['block_number']
-            _, _, _, tx_hash = key.decode('utf8').split('-')
-            self.txs.append([tx_hash, value['info']['tx_index']])
+            # {chain}-blocktx-{block_hash}-{tx_hash}[-{sub}]
+            parts = key.decode('utf8').split('-')
+            if len(parts) < 4:
+                continue
+            tx_hash = parts[3]
+            sub = int(parts[4]) if len(parts) > 4 else 0
+            self.txs.append([tx_hash, value['info']['tx_index'], sub,
+                             value['info'].get('sender', ''),
+                             bool(value['info'].get('gas_sponsor'))])
+        # rocksdb iterates blocktx keys in tx_hash order; display by tx_index
+        self.txs.sort(key=lambda t: (t[1], t[2]))
 
         self.render('template/block.html')
 
@@ -541,20 +565,55 @@ class TxHandler(tornado.web.RequestHandler):
         global global_input
         self.chain = self.get_argument('chain', 'base')
         assert self.chain in setting.chains
+        try:
+            self.sub = int(self.get_argument('sub', '0'))
+        except ValueError:
+            self.sub = 0
 
         it = global_input.iteritems()
-        it.seek(('%s-tx-%s-' % (self.chain, tx_hash)).encode('utf8'))
+        tx_prefix = ('%s-tx-%s-' % (self.chain, tx_hash)).encode('utf8')
+        it.seek(tx_prefix)
         self.tx_hash = ''
+        self.block_hash = ''
+        self.events = []
+        self.block_number = 0
+        self.tx_index = None
+        self.sender = ''
+        self.args = {}
+        tx_record = None
         for key, value_json in it:
             # print('tx', key, value_json)
-            if not key.startswith(('%s-tx-%s-' % (self.chain, tx_hash)).encode('utf8')):
+            if not key.startswith(tx_prefix):
                 break
-            _, _, self.tx_hash, self.block_hash = key.decode('utf8').split('-')
+            # {chain}-tx-{tx_hash}-{block_hash}[-{sub}]
+            parts = key.decode('utf8').split('-')
+            if len(parts) < 4:
+                continue
+            k_sub = int(parts[4]) if len(parts) > 4 else 0
+            if k_sub != self.sub:
+                continue
+            self.tx_hash = parts[2]
+            self.block_hash = parts[3]
             # print('self.tx_hash', self.tx_hash, 'self.block_hash', self.block_hash)
 
             value = json.loads(value_json)
             self.events = value['events']
+            tx_record = True
             break
+        if not tx_record and self.block_hash == '':
+            # requested sub not found; fall back to sub 0 / first entry
+            it.seek(tx_prefix)
+            for key, value_json in it:
+                if not key.startswith(tx_prefix):
+                    break
+                parts = key.decode('utf8').split('-')
+                if len(parts) < 4:
+                    continue
+                self.tx_hash = parts[2]
+                self.block_hash = parts[3]
+                value = json.loads(value_json)
+                self.events = value['events']
+                break
 
         blocktx_prefix = ('%s-blocktx-%s-' % (self.chain, self.block_hash)).encode('utf8')
         it.seek(blocktx_prefix)
@@ -563,7 +622,12 @@ class TxHandler(tornado.web.RequestHandler):
             if not key.startswith(blocktx_prefix):
                 break
             # self.write('%s %s<br>' % (key, value_json))
-            if key.decode('utf8').split('-')[-1] != tx_hash:
+            # {chain}-blocktx-{block_hash}-{tx_hash}[-{sub}]
+            parts = key.decode('utf8').split('-')
+            if len(parts) < 4 or parts[3] != tx_hash:
+                continue
+            k_sub = int(parts[4]) if len(parts) > 4 else 0
+            if k_sub != self.sub:
                 continue
             value = json.loads(value_json)
             self.block_number = value['info']['block_number']
@@ -868,9 +932,12 @@ class InputHandler(tornado.web.RequestHandler):
                         print('key1', key1)
                         if not key1.startswith(k):
                             break
-                        _, _, _, block_hash = key1.decode('utf8').split('-')
+                        # {chain}-tx-{tx_hash}-{block_hash}[-{sub}]
+                        parts1 = key1.decode('utf8').split('-')
+                        if len(parts1) < 4:
+                            continue
+                        block_hash = parts1[3]
                         self.write('%s<br>' % (value_json1))
-                        break
 
                     k = ('%s-blocktx-%s-' % (chain, block_hash) ).encode('utf8')
                     it1.seek(k)
@@ -1021,30 +1088,22 @@ class MainHandler(tornado.web.RequestHandler):
     #     self.finish()
 
 
-async def fetch_gazer():
+def process_block(blk, advance_height=True):
     global global_input
-    global height
-    # print('fetching gazer for height', height)
-
-    http_client = tornado.httpclient.AsyncHTTPClient()
-    try:
-        response = await http_client.fetch(f'{setting.gazers[setting.chain]}/zentra/{height}')
-    except Exception as e:
-        print('Error fetching gazer:', e)
-        tornado.ioloop.IOLoop.instance().call_later(1, fetch_gazer)
-        return
-
-    blk = json.loads(response.body)
-    if not blk:
-        tornado.ioloop.IOLoop.instance().call_later(1, fetch_gazer)
-        return
 
     chain = blk['chain']
     block_number = blk['block_number']
     block_hash = blk['block_hash'].replace('0x', '')
     timestamp = blk['timestamp']
     # print(blk)
-    transactions = [i['tx_hash'].replace('0x', '') for i, a in blk['txs']]
+    results = []
+    transactions = []
+    seen_tx = set()
+    for i, a in blk['txs']:
+        h = i['tx_hash'].replace('0x', '')
+        if h not in seen_tx:
+            seen_tx.add(h)
+            transactions.append(h)
     if transactions:
         global_input.put(('%s-block-%s-%s' % (chain, str(setting.REVERSED_NO - block_number).zfill(16), block_hash)).encode('utf8'), json.dumps({'transactions': transactions, 'timestamp': timestamp, 'chain': chain}).encode('utf8'))
     # print(txs)
@@ -1053,6 +1112,7 @@ async def fetch_gazer():
     space.block_number = block_number
     space.block_hash = block_hash
     space.chain = chain
+    tx_sub_count = {}
     for data in blk['txs']:
         print(data)
         info = data[0]
@@ -1070,10 +1130,19 @@ async def fetch_gazer():
             func_name = args.get('f', '')
         space.func_name = func_name
         tx_hash = info['tx_hash'].replace('0x', '')
-        k = ('%s-blocktx-%s-%s' % (chain, block_hash, tx_hash)).encode('utf8')
+        # sub-index: 0 -> legacy key (no suffix), N>=1 -> key + '-N'
+        sub = tx_sub_count.get(tx_hash, 0)
+        tx_sub_count[tx_hash] = sub + 1
+        info['sub'] = sub
+        sub_suffix = '' if sub == 0 else '-%d' % sub
+        k = ('%s-blocktx-%s-%s%s' % (chain, block_hash, tx_hash, sub_suffix)).encode('utf8')
         global_input.put(k, json.dumps({'info': info, 'args': args}).encode('utf8'))
         nonce = str(setting.REVERSED_NO - int(info['nonce'])).zfill(16)
-        global_input.put(('%s-addr-%s-%s' % (chain, info['sender'], nonce)).encode('utf8'), json.dumps(info).encode('utf8'))
+        if sub == 0:
+            addr_key = '%s-addr-%s-%s' % (chain, info['sender'], nonce)
+        else:
+            addr_key = '%s-addr-%s-%s-%s-%d' % (chain, info['sender'], nonce, tx_hash, sub)
+        global_input.put(addr_key.encode('utf8'), json.dumps(info).encode('utf8'))
         try:
             success = funcs.process(info, args)
         except Exception as e:
@@ -1117,15 +1186,49 @@ async def fetch_gazer():
                     })
                     space.broadcast(trade_msg)
 
-        k = ('%s-tx-%s-%s' % (chain, tx_hash, block_hash)).encode('utf8')
+        k = ('%s-tx-%s-%s%s' % (chain, tx_hash, block_hash, sub_suffix)).encode('utf8')
         global_input.put(k, json.dumps({'block_number': block_number, 'chain': chain, 'success': success, 'events': events}).encode('utf8'))
+
+        results.append({
+            'tx_hash': '0x' + tx_hash,
+            'tx_index': info.get('tx_index'),
+            'sub': sub,
+            'sender': info.get('sender', ''),
+            'gas_sponsor': bool(info.get('gas_sponsor')),
+            'func': func_name,
+            'args': args,
+            'success': success,
+            'events': events,
+        })
 
         space.tx_index += 1
 
     space.merge()
     space.events = {}
-    global_input.put(('%s-height' % (chain)).encode('utf8'), str(block_number).encode('utf8'))
-    height = block_number + 1
+    if advance_height:
+        global_input.put(('%s-height' % (chain)).encode('utf8'), str(block_number).encode('utf8'))
+    return results
+
+
+async def fetch_gazer():
+    global height
+    # print('fetching gazer for height', height)
+
+    http_client = tornado.httpclient.AsyncHTTPClient()
+    try:
+        response = await http_client.fetch(f'{setting.gazers[setting.chain]}/zentra/{height}')
+    except Exception as e:
+        print('Error fetching gazer:', e)
+        tornado.ioloop.IOLoop.instance().call_later(1, fetch_gazer)
+        return
+
+    blk = json.loads(response.body)
+    if not blk:
+        tornado.ioloop.IOLoop.instance().call_later(1, fetch_gazer)
+        return
+
+    process_block(blk)
+    height = blk['block_number'] + 1
     tornado.ioloop.IOLoop.instance().add_callback(fetch_gazer)
 
 

@@ -17,7 +17,7 @@
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div class="font-semibold">Transaction Index:</div>
-                    <div class="md:col-span-3 text-gray-800">{{ handler.tx_index }}</div>
+                    <div class="md:col-span-3 text-gray-800">{{ handler.tx_index }}{% if handler.sub %}/{{ handler.sub }}{% end %}</div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div class="font-semibold">From:</div>
