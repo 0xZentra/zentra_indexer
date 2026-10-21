@@ -1,0 +1,95 @@
+<html>
+<head>
+    <title>{{ handler.name }} opcodes - Zentra Explorer</title>
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    {% include 'nav.html' %}
+
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+            <h2 class="text-2xl font-bold mb-4">Python / Opcode mapping: <span class="font-mono">{{ handler.name }}</span></h2>
+            <hr>
+
+            {% if handler.not_found %}
+            <p class="text-red-500 my-4">Function "{{ handler.name }}" not found on chain.</p>
+            <a href="/functions?chain={{ handler.chain }}" class="text-orange-500 hover:text-orange-600">&larr; Back to Functions</a>
+            {% else %}
+
+            <div class="flex flex-wrap gap-4 my-4 text-sm">
+                {% if handler.block_number is not None %}
+                <div>
+                    <span class="text-gray-500">Registered at block:</span>
+                    <span class="font-mono">#{{ handler.block_number }}</span>
+                </div>
+                {% end %}
+                {% if handler.snippets %}
+                <div>
+                    <span class="text-gray-500">Snippets:</span>
+                    {% for h in handler.snippets %}
+                    <a href="/state?chain={{ handler.chain }}&search=function-snippet:{{ h }}" class="font-mono text-orange-500 hover:text-orange-600 mr-2">{{ h[:12] }}...</a>
+                    {% end for %}
+                </div>
+                {% end %}
+                {% if handler.code_info %}
+                <div class="text-gray-500 font-mono">{{ handler.code_info }}</div>
+                {% end %}
+            </div>
+
+            {% if handler.error %}
+            <p class="text-red-600 my-4 font-mono text-sm">Compile error: {{ handler.error }}</p>
+            {% end %}
+
+            {% if handler.unsupported %}
+            <div class="bg-red-50 border border-red-200 rounded-md p-3 my-4 text-sm">
+                <span class="font-semibold text-red-700">Unsupported opcodes:</span>
+                <span class="font-mono text-red-700">{{ ', '.join(handler.unsupported) }}</span>
+                <div class="text-gray-600 mt-1">vm.py does not implement these; a snippet that reaches one will silently stop executing.</div>
+            </div>
+            {% end %}
+
+            {% if handler.rows %}
+            <div class="bg-gray-50 rounded-md border border-gray-200 overflow-x-auto mt-2">
+                <table class="w-full text-xs font-mono">
+                    <thead>
+                        <tr class="text-gray-500 border-b border-gray-300 bg-white">
+                            <th class="text-right pr-3 pl-2 py-2 w-12">Line</th>
+                            <th class="text-left pr-4 py-2">Python</th>
+                            <th class="text-right pr-3 py-2 w-16">Offset</th>
+                            <th class="text-left pr-3 py-2 w-40">Opcode</th>
+                            <th class="text-left pr-3 py-2">Arg</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in handler.rows %}
+                        {% if r['ops'] %}
+                        {% for op in r['ops'] %}
+                        <tr class="{% if not op['supported'] %}bg-red-100{% end %}">
+                            {% if op["first"] %}
+                            <td rowspan="{{ len(r['ops']) }}" class="text-gray-400 text-right pr-3 pl-2 select-none align-top">{{ r['lineno'] }}</td>
+                            <td rowspan="{{ len(r['ops']) }}" class="whitespace-pre pr-4 align-top {% if r['bad'] %}bg-red-100 text-red-700{% end %}">{{ r['text'] }}</td>
+                            {% end %}
+                            <td class="text-gray-500 text-right pr-3">{{ op['offset'] }}</td>
+                            <td class="pr-3 {% if op['supported'] %}text-gray-800{% else %}text-red-600 font-bold{% end %}">{{ op['opname'] }}</td>
+                            <td class="pr-3 text-gray-600">{{ op['arg'] }}</td>
+                        </tr>
+                        {% end %}
+                        {% else %}
+                        <tr>
+                            <td class="text-gray-400 text-right pr-3 pl-2 select-none align-top">{{ r['lineno'] }}</td>
+                            <td class="whitespace-pre pr-4 text-gray-500">{{ r['text'] }}</td>
+                            <td></td><td></td><td></td>
+                        </tr>
+                        {% end %}
+                        {% end %}
+                    </tbody>
+                </table>
+            </div>
+            {% end %}
+
+            <a href="/function?chain={{ handler.chain }}&name={{ handler.name }}" class="inline-block mt-6 text-orange-500 hover:text-orange-600">&larr; Back to Function</a>
+            {% end %}
+        </div>
+    </div>
+</body>
+</html>

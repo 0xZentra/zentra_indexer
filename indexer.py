@@ -8,7 +8,12 @@
 # import datetime
 # import binascii
 import json
+import re
 import time
+import codeop
+import dis
+import opcode
+import types
 
 # import tornado.options
 import tornado.web
@@ -49,6 +54,89 @@ def _iter_tx_records(chain, tx_hash, block_hash):
         if tail and not (tail.startswith('-') and tail[1:].isdigit()):
             continue
         yield json.loads(value_json)
+
+
+# CPython 3.10 bytecode opcodes actually implemented by vm.py (VM.step).
+# Any other opcode makes VM.step fall through and silently end execution.
+VM_SUPPORTED_OPCODES = frozenset(opcode.opmap[n] for n in (
+    'NOP POP_TOP ROT_TWO ROT_THREE DUP_TOP DUP_TOP_TWO '
+    'UNARY_POSITIVE UNARY_NEGATIVE UNARY_NOT UNARY_INVERT '
+    'BINARY_POWER BINARY_MULTIPLY BINARY_MODULO BINARY_ADD BINARY_SUBTRACT '
+    'BINARY_SUBSCR BINARY_FLOOR_DIVIDE BINARY_TRUE_DIVIDE '
+    'INPLACE_ADD INPLACE_SUBTRACT INPLACE_MODULO STORE_SUBSCR DELETE_SUBSCR '
+    'BINARY_AND GET_ITER LOAD_BUILD_CLASS LOAD_ASSERTION_ERROR INPLACE_RSHIFT '
+    'WITH_CLEANUP_START WITH_CLEANUP_FINISH RETURN_VALUE POP_BLOCK END_FINALLY '
+    'POP_EXCEPT STORE_NAME UNPACK_SEQUENCE FOR_ITER STORE_GLOBAL '
+    'LOAD_CONST LOAD_NAME BUILD_TUPLE BUILD_LIST BUILD_MAP LOAD_ATTR COMPARE_OP '
+    'IMPORT_NAME JUMP_FORWARD JUMP_IF_TRUE_OR_POP JUMP_ABSOLUTE '
+    'POP_JUMP_IF_FALSE POP_JUMP_IF_TRUE LOAD_GLOBAL IS_OP CONTAINS_OP '
+    'SETUP_FINALLY LOAD_FAST STORE_FAST RAISE_VARARGS CALL_FUNCTION '
+    'MAKE_FUNCTION BUILD_SLICE CALL_FUNCTION_KW CALL_FUNCTION_EX SETUP_WITH '
+    'EXTENDED_ARG FORMAT_VALUE BUILD_CONST_KEY_MAP BUILD_STRING LOAD_METHOD '
+    'CALL_METHOD LIST_EXTEND'
+).split() if n in opcode.opmap)
+
+
+def load_function(chain, name):
+    """Load a function's snippet list/source from global_state.
+
+    Returns (snippets, source, block_number, found).
+    """
+    snippets = []
+    source = ''
+    block_number = None
+    code = None
+
+    prefix = ('%s-function-code:%s-' % (chain, name)).encode('utf8')
+    it = global_state.iteritems()
+    it.seek(prefix)
+    for key, value_json in it:
+        if not key.startswith(prefix):
+            break
+        ks = key.decode('utf8').split('-')
+        try:
+            block_number = setting.REVERSED_NO - int(ks[3])
+        except Exception:
+            block_number = None
+        try:
+            code = json.loads(value_json)
+        except Exception:
+            code = None
+        break
+
+    if code:
+        snippets = code.get('snippets', []) if isinstance(code, dict) else []
+        parts = []
+        for snippet_hash in snippets:
+            sprefix = ('%s-function-snippet:%s-' % (chain, snippet_hash)).encode('utf8')
+            it2 = global_state.iteritems()
+            it2.seek(sprefix)
+            for key2, value_json2 in it2:
+                if not key2.startswith(sprefix):
+                    break
+                try:
+                    snippet = json.loads(value_json2)
+                except Exception:
+                    snippet = {}
+                if not isinstance(snippet, dict):
+                    snippet = {}
+                parts.append(snippet.get('snippet', ''))
+                break
+        source = '\n'.join(parts)
+
+    return snippets, source, block_number, bool(code)
+
+
+def extract_function_source(source, name):
+    """Return only the `def <name>(...)` block: from that line up to the
+    next line starting with 'def ' (or end of source)."""
+    m = re.search(r'^def\s+%s\s*\(' % re.escape(name), source, re.M)
+    if not m:
+        return source
+    rest = source[m.end():]
+    m2 = re.search(r'^def\s', rest, re.M)
+    end = m.end() + m2.start() if m2 else len(source)
+    return source[m.start():end].rstrip('\n')
 
 
 class SpotOrderbookAPIHandler(tornado.web.RequestHandler):
@@ -841,57 +929,116 @@ class FunctionsHandler(tornado.web.RequestHandler):
 
 class FunctionHandler(tornado.web.RequestHandler):
     def get(self):
-        global global_state
         self.chain = self.get_argument('chain', 'base')
         assert self.chain in setting.chains
         self.name = self.get_argument('name')
 
-        self.snippets = []
-        self.source = ''
-        self.block_number = None
-        self.not_found = False
-
-        prefix = ('%s-function-code:%s-' % (self.chain, self.name)).encode('utf8')
-        it = global_state.iteritems()
-        it.seek(prefix)
-        code = None
-        for key, value_json in it:
-            if not key.startswith(prefix):
-                break
-            ks = key.decode('utf8').split('-')
-            try:
-                self.block_number = setting.REVERSED_NO - int(ks[3])
-            except Exception:
-                self.block_number = None
-            try:
-                code = json.loads(value_json)
-            except Exception:
-                code = None
-            break
-
-        if code:
-            self.snippets = code.get('snippets', []) if isinstance(code, dict) else []
-            parts = []
-            for snippet_hash in self.snippets:
-                sprefix = ('%s-function-snippet:%s-' % (self.chain, snippet_hash)).encode('utf8')
-                it2 = global_state.iteritems()
-                it2.seek(sprefix)
-                for key2, value_json2 in it2:
-                    if not key2.startswith(sprefix):
-                        break
-                    try:
-                        snippet = json.loads(value_json2)
-                    except Exception:
-                        snippet = {}
-                    if not isinstance(snippet, dict):
-                        snippet = {}
-                    parts.append(snippet.get('snippet', ''))
-                    break
-            self.source = '\n'.join(parts)
-        else:
-            self.not_found = True
+        self.snippets, self.source, self.block_number, found = load_function(self.chain, self.name)
+        self.not_found = not found
+        if self.source:
+            self.source = extract_function_source(self.source, self.name)
 
         self.render('template/function.html')
+
+
+class OpcodeHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.chain = self.get_argument('chain', 'base')
+        assert self.chain in setting.chains
+        self.name = self.get_argument('name')
+
+        self.snippets, self.source, self.block_number, found = load_function(self.chain, self.name)
+        self.not_found = not found
+        self.error = None
+        self.rows = []
+        self.unsupported = []
+        self.code_info = ''
+
+        if self.source and not self.not_found:
+            full_source = self.source
+            module_code = None
+            try:
+                module_code = codeop.compile_command(full_source, symbol='exec')
+                if module_code is None:
+                    raise ValueError('incomplete source')
+            except Exception as e:
+                self.error = '%s: %s' % (type(e).__name__, e)
+
+            if module_code is not None:
+                def walk(co):
+                    yield co
+                    for const in co.co_consts:
+                        if isinstance(const, types.CodeType):
+                            for item in walk(const):
+                                yield item
+
+                all_codes = list(walk(module_code))
+                target = None
+                for co in all_codes:
+                    if co.co_name == self.name:
+                        target = co
+                        break
+
+                if target is not None:
+                    codes = [target]
+                    self.code_info = 'args=%d, varnames=%s, co_code=%d bytes' % (
+                        target.co_argcount, ', '.join(target.co_varnames), len(target.co_code))
+                else:
+                    codes = all_codes
+
+                unsupported = set()
+                by_line = {}
+                for co in codes:
+                    line = None
+                    for ins in dis.get_instructions(co):
+                        if ins.starts_line is not None:
+                            line = ins.starts_line
+                        ok = ins.opcode in VM_SUPPORTED_OPCODES
+                        if not ok:
+                            unsupported.add(ins.opname)
+                        if line is None:
+                            continue
+                        by_line.setdefault(line, []).append({
+                            'offset': ins.offset,
+                            'opname': ins.opname,
+                            'arg': ins.argrepr,
+                            'supported': ok,
+                        })
+                self.unsupported = sorted(unsupported)
+
+                if target is not None:
+                    display = extract_function_source(full_source, self.name)
+                    start_line = full_source[:full_source.index(display)].count('\n') + 1
+                else:
+                    display = full_source
+                    start_line = 1
+
+                lines = display.split('\n')
+                for i, text in enumerate(lines):
+                    lineno = start_line + i
+                    ops = by_line.pop(lineno, [])
+                    for op_i, op in enumerate(ops):
+                        op['first'] = op_i == 0
+                    self.rows.append({
+                        'lineno': lineno,
+                        'text': text,
+                        'bad': any(not op['supported'] for op in ops),
+                        'ops': ops,
+                    })
+
+                last_line = start_line + len(lines) - 1
+                for lineno in sorted(k for k in by_line if k > last_line):
+                    ops = by_line[lineno]
+                    for op_i, op in enumerate(ops):
+                        op['first'] = op_i == 0
+                    self.rows.append({
+                        'lineno': lineno,
+                        'text': '',
+                        'bad': any(not op['supported'] for op in ops),
+                        'ops': ops,
+                    })
+
+        self.render('template/opcode.html')
 
 
 class InputHandler(tornado.web.RequestHandler):
@@ -1331,6 +1478,7 @@ class Application(tornado.web.Application):
             (r'/state', StateHandler),
             (r'/functions', FunctionsHandler),
             (r'/function', FunctionHandler),
+            (r'/opcode', OpcodeHandler),
             (r'/input', InputHandler),
             # (r'/entry', EntryHandler),
             (r'/', MainHandler),

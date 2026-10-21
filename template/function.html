@@ -37,6 +37,8 @@
             <h3 class="text-xl font-bold mb-2 mt-6">Source Code</h3>
             <pre class="bg-gray-100 p-4 rounded-md text-sm overflow-x-auto"><code class="language-python">{{ handler.source }}</code></pre>
 
+            <a href="/opcode?chain={{ handler.chain }}&name={{ handler.name }}" class="inline-block mt-4 text-orange-500 hover:text-orange-600">View Python / opcode mapping &rarr;</a>
+            <br>
             <a href="/functions?chain={{ handler.chain }}" class="inline-block mt-6 text-orange-500 hover:text-orange-600">&larr; Back to Functions</a>
             {% end if %}
         </div>
