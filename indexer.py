@@ -664,6 +664,7 @@ class TxHandler(tornado.web.RequestHandler):
         self.tx_hash = ''
         self.block_hash = ''
         self.events = []
+        self.errors = []
         self.block_number = 0
         self.tx_index = None
         self.sender = ''
@@ -686,6 +687,7 @@ class TxHandler(tornado.web.RequestHandler):
 
             value = json.loads(value_json)
             self.events = value['events']
+            self.errors = value.get('errors', []) or []
             tx_record = True
             break
         if not tx_record and self.block_hash == '':
@@ -701,6 +703,7 @@ class TxHandler(tornado.web.RequestHandler):
                 self.block_hash = parts[3]
                 value = json.loads(value_json)
                 self.events = value['events']
+                self.errors = value.get('errors', []) or []
                 break
 
         blocktx_prefix = ('%s-blocktx-%s-' % (self.chain, self.block_hash)).encode('utf8')
@@ -953,6 +956,10 @@ class OpcodeHandler(tornado.web.RequestHandler):
         self.rows = []
         self.unsupported = []
         self.code_info = ''
+        try:
+            self.pc = int(self.get_argument('pc'))
+        except Exception:
+            self.pc = None
 
         if self.source and not self.not_found:
             full_source = self.source
@@ -1019,10 +1026,14 @@ class OpcodeHandler(tornado.web.RequestHandler):
                     ops = by_line.pop(lineno, [])
                     for op_i, op in enumerate(ops):
                         op['first'] = op_i == 0
+                        op['exc'] = (self.pc is not None and op.get('offset') == self.pc)
+                    bad = any(not op['supported'] for op in ops)
+                    exc = any(op.get('exc') for op in ops)
                     self.rows.append({
                         'lineno': lineno,
                         'text': text,
-                        'bad': any(not op['supported'] for op in ops),
+                        'bad': bad,
+                        'exc': exc,
                         'ops': ops,
                     })
 
@@ -1031,10 +1042,14 @@ class OpcodeHandler(tornado.web.RequestHandler):
                     ops = by_line[lineno]
                     for op_i, op in enumerate(ops):
                         op['first'] = op_i == 0
+                        op['exc'] = (self.pc is not None and op.get('offset') == self.pc)
+                    bad = any(not op['supported'] for op in ops)
+                    exc = any(op.get('exc') for op in ops)
                     self.rows.append({
                         'lineno': lineno,
                         'text': '',
-                        'bad': any(not op['supported'] for op in ops),
+                        'bad': bad,
+                        'exc': exc,
                         'ops': ops,
                     })
 
@@ -1291,9 +1306,18 @@ def process_block(blk, advance_height=True):
             addr_key = '%s-addr-%s-%s-%s-%d' % (chain, info['sender'], nonce, tx_hash, sub)
         global_input.put(addr_key.encode('utf8'), json.dumps(info).encode('utf8'))
         try:
+            space.call_errors = []
+        except Exception:
+            pass
+        try:
             success = funcs.process(info, args)
         except Exception as e:
             print('Error:', func_name, e)
+            try:
+                if not getattr(space, 'call_errors', None):
+                    space.call_errors = [{'func': func_name, 'pc': None, 'error': '%s: %s' % (type(e).__name__, str(e)[:300])}]
+            except Exception:
+                pass
             success = False
 
         if not success:
@@ -1305,6 +1329,10 @@ def process_block(blk, advance_height=True):
                 del space.events[space.tx_index]
 
         events = space.events.get(space.tx_index, [])
+        try:
+            errors = list(getattr(space, 'call_errors', []) or [])
+        except Exception:
+            errors = []
         # Broadcast trade events via WS
         for evt in events:
             if len(evt) > 2 and evt[1] in ('SpotLimitTake', 'SpotMarketTake'):
@@ -1334,7 +1362,7 @@ def process_block(blk, advance_height=True):
                     space.broadcast(trade_msg)
 
         k = ('%s-tx-%s-%s%s' % (chain, tx_hash, block_hash, sub_suffix)).encode('utf8')
-        global_input.put(k, json.dumps({'block_number': block_number, 'chain': chain, 'success': success, 'events': events}).encode('utf8'))
+        global_input.put(k, json.dumps({'block_number': block_number, 'chain': chain, 'success': success, 'events': events, 'errors': errors}).encode('utf8'))
 
         results.append({
             'tx_hash': '0x' + tx_hash,
@@ -1346,6 +1374,7 @@ def process_block(blk, advance_height=True):
             'args': args,
             'success': success,
             'events': events,
+            'errors': errors,
         })
 
         space.tx_index += 1
@@ -1359,7 +1388,7 @@ def process_block(blk, advance_height=True):
 
 async def fetch_gazer():
     global height
-    # print('fetching gazer for height', height)
+    print('fetching gazer for height', height)
 
     http_client = tornado.httpclient.AsyncHTTPClient()
     try:

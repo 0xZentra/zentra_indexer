@@ -36,6 +36,28 @@
             <h3 class="text-xl font-bold mb-2 mt-6">Transaction Data</h3>
             <pre class="bg-gray-100 p-4 rounded-md text-sm" style="white-space: pre-wrap; word-break: break-all;">{{ handler.args }}</pre>
 
+            {% if handler.errors %}
+            <h3 class="text-xl font-bold mb-2 mt-6">Call Errors</h3>
+            <div class="space-y-2">
+                {% for err in handler.errors %}
+                <div class="bg-red-50 border border-red-200 rounded-md p-3">
+                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                        <span class="font-semibold text-red-700">func:</span>
+                        {% if err.get('pc') is not None %}
+                        <a href="/opcode?chain={{ handler.chain }}&name={{ err.get('func') }}&pc={{ err.get('pc') }}" class="font-mono text-orange-500 hover:text-orange-600">{{ err.get('func') }}</a>
+                        {% else %}
+                        <span class="font-mono text-red-700">{{ err.get('func') }}</span>
+                        {% end %}
+                        {% if err.get('pc') is not None %}
+                        <span class="text-gray-500">pc: {{ err.get('pc') }}</span>
+                        {% end %}
+                    </div>
+                    <pre class="mt-1 text-xs text-red-800 whitespace-pre-wrap break-all">{{ err.get('error') }}</pre>
+                </div>
+                {% end %}
+            </div>
+            {% end %}
+
             <h3 class="text-xl font-bold mb-2 mt-6">Events</h3>
             <pre class="bg-gray-100 p-4 rounded-md text-sm" style="white-space: pre-wrap; word-break: break-all;">{{ handler.events }}</pre>
         </div>

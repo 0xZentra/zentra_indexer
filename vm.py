@@ -27,11 +27,28 @@ class VM:
         self.module_object = None
         self.code = None
         self.extended_arg = 0
+        self.last_exception = None
 
         self.global_vars = {}
         self.native_vars = set()
         self.funcs = []
         self.count = 0
+
+    def _record_exception(self, ctx, e):
+        # keep the innermost frame: the first one to catch the exception
+        if self.last_exception is None:
+            self.last_exception = {
+                'func': ctx.code.co_name,
+                'pc': ctx.pc,
+                'error': '%s: %s' % (type(e).__name__, str(e)[:300]),
+            }
+        # stash the info on the exception object itself so that it survives
+        # propagation through nested calls / other VM instances
+        try:
+            if not hasattr(e, '_zentra_call_error'):
+                e._zentra_call_error = dict(self.last_exception)
+        except Exception:
+            pass
 
     def import_function(self, function_object, global_vars = {}):
         self.code = function_object.__code__
@@ -68,7 +85,11 @@ class VM:
         pc = -1
         while pc != ctx.pc:
             pc = ctx.pc
-            r = self.step(ctx)
+            try:
+                r = self.step(ctx)
+            except Exception as e:
+                self._record_exception(ctx, e)
+                raise
             self.count += 1
             if self.count % 100000 == 99999:
                 print('Steps:', self.count)
@@ -142,7 +163,11 @@ class VM:
         self.count = 0
         while pc != ctx.pc:
             pc = ctx.pc
-            r = self.step(ctx)
+            try:
+                r = self.step(ctx)
+            except Exception as e:
+                self._record_exception(ctx, e)
+                raise
             self.count += 1
             if self.count >= SOFT_LIMIT:
                 print('SOFT LIMIT', pc)

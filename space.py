@@ -26,6 +26,9 @@ state_indexes = []
 events = {}
 
 tx_index = 0
+
+# call/exception trace for the current zen tx/sub (reset per execution in indexer)
+call_errors = []
 info = None
 chain = None
 block_hash = None

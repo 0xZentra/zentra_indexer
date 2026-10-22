@@ -114,6 +114,32 @@ def function_vote(info, args):
         event('FunctionVote', [proposal_id, addr])
 
 
+def _record_error(func_name, e, v = None):
+    '''Record the exception (with VM pc if available) into space.call_errors.
+
+    The exception is re-raised by the caller so the chain behaviour stays
+    unchanged (a failed call aborts the whole zen / multi-call).
+    '''
+    rec = None
+    if v is not None and getattr(v, 'last_exception', None):
+        rec = dict(v.last_exception)
+    if not rec:
+        rec = {'func': func_name, 'pc': None}
+    rec['error'] = '%s: %s' % (type(e).__name__, str(e)[:300])
+    try:
+        if hasattr(e, '_zentra_call_error'):
+            rec = dict(e._zentra_call_error)
+    except Exception:
+        pass
+    try:
+        if not getattr(e, '_zentra_recorded', False):
+            e._zentra_recorded = True
+            space.call_errors.append(rec)
+    except Exception:
+        pass
+    return rec
+
+
 def process(info, args):
     # global global_input
 
@@ -194,14 +220,41 @@ def _process(info, func_name, func_args):
 
     success = True
     if v:
-        success = v.run([info, args], function_name = func_name)
+        try:
+            if hasattr(v, 'last_exception'):
+                v.last_exception = None
+            success = v.run([info, args], function_name = func_name)
+        except Exception as e:
+            print('Error:', func_name, e)
+            _record_error(func_name, e, v)
+            raise
     elif func_name == 'function_vote':
-        function_vote(info, args)
+        try:
+            function_vote(info, args)
+        except Exception as e:
+            print('Error:', func_name, e)
+            _record_error(func_name, e)
+            raise
     elif func_name == 'function_proposal':
-        function_proposal(info, args)
+        try:
+            function_proposal(info, args)
+        except Exception as e:
+            print('Error:', func_name, e)
+            _record_error(func_name, e)
+            raise
     elif func_name == 'function_snippet':
-        function_snippet(info, args)
+        try:
+            function_snippet(info, args)
+        except Exception as e:
+            print('Error:', func_name, e)
+            _record_error(func_name, e)
+            raise
     elif func_name == 'committee_init':
-        committee_init(info, args)
+        try:
+            committee_init(info, args)
+        except Exception as e:
+            print('Error:', func_name, e)
+            _record_error(func_name, e)
+            raise
 
     return success

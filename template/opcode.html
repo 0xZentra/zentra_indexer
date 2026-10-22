@@ -64,15 +64,27 @@
                         {% for r in handler.rows %}
                         {% if r['ops'] %}
                         {% for op in r['ops'] %}
+                        {% if op['exc'] %}
+                        <tr class="bg-yellow-100">
+                            {% if op["first"] %}
+                            <td rowspan="{{ len(r['ops']) }}" class="text-gray-400 text-right pr-3 pl-2 select-none align-top">{{ r['lineno'] }}</td>
+                            <td rowspan="{{ len(r['ops']) }}" class="whitespace-pre pr-4 align-top bg-yellow-100 text-yellow-900">{{ r['text'] }}</td>
+                            {% end %}
+                            <td class="text-gray-600 text-right pr-3">{{ op['offset'] }}</td>
+                            <td class="pr-3 text-yellow-800 font-bold">{{ op['opname'] }} <span class="text-red-600 font-semibold">&#8592; exception</span></td>
+                            <td class="pr-3 text-gray-700">{{ op['arg'] }}</td>
+                        </tr>
+                        {% else %}
                         <tr class="{% if not op['supported'] %}bg-red-100{% end %}">
                             {% if op["first"] %}
                             <td rowspan="{{ len(r['ops']) }}" class="text-gray-400 text-right pr-3 pl-2 select-none align-top">{{ r['lineno'] }}</td>
-                            <td rowspan="{{ len(r['ops']) }}" class="whitespace-pre pr-4 align-top {% if r['bad'] %}bg-red-100 text-red-700{% end %}">{{ r['text'] }}</td>
+                            <td rowspan="{{ len(r['ops']) }}" class="whitespace-pre pr-4 align-top {% if r['exc'] %}bg-yellow-100 text-yellow-900{% elif r['bad'] %}bg-red-100 text-red-700{% end %}">{{ r['text'] }}</td>
                             {% end %}
                             <td class="text-gray-500 text-right pr-3">{{ op['offset'] }}</td>
                             <td class="pr-3 {% if op['supported'] %}text-gray-800{% else %}text-red-600 font-bold{% end %}">{{ op['opname'] }}</td>
                             <td class="pr-3 text-gray-600">{{ op['arg'] }}</td>
                         </tr>
+                        {% end %}
                         {% end %}
                         {% else %}
                         <tr>
