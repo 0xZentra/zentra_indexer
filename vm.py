@@ -128,9 +128,33 @@ class VM:
             return result
 
         # print(func.__code__.co_argcount, args)
+        # print(func.__code__.co_freevars)
+        # print(func.__code__.co_name)
+        # print(func.__code__.co_names)
+        # print(func.__code__.co_flags)
+        # print(func.__code__.co_varnames)
+        # print(func.__code__.co_consts)
+        # print(func.__code__.co_nlocals)
+        # print(func.__code__.co_kwonlyargcount)
+        # print(func.__code__.co_posonlyargcount)
+        # print(func.__code__.co_linetable)
+        # print(func.__code__.co_stacksize)
+        # print(func.__code__.co_lnotab)
+        # print(dir(func.__code__))
+        # print(func.__defaults__)
+        # print(func.__kwdefaults__)
+        # print(dir(func))
         # assert func.__code__.co_argcount == len(args)
         assert func.__code__.co_code
         ctx = Context(func.__code__, args)
+
+        if func.__defaults__:
+            # print(-(func.__code__.co_argcount - len(func.__defaults__)))
+            varnames_defaluts = func.__code__.co_varnames[-(func.__code__.co_argcount - len(func.__defaults__)):]
+            # print(varnames_defaluts)
+            for index, varname in enumerate(varnames_defaluts):
+                if varname not in ctx.local_vars:
+                    ctx.local_vars[varname] = func.__defaults__[index]
 
         pc = -1
         while pc != ctx.pc:
