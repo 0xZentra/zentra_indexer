@@ -807,6 +807,15 @@ class VM:
             # print('co_varnames', ctx.code.co_varnames)
             # print('local_vars', ctx.local_vars)
 
+        elif co_code[ctx.pc] == 0x91: # LIST_APPEND
+            # print('LIST_APPEND', param)
+            # print(ctx.stack)
+            val = ctx.stack.pop()
+            # list.append(ctx.stack[-param], val)
+            obj = ctx.stack[-param]
+            obj.append(val)
+            ctx.pc += 2
+
         elif co_code[ctx.pc] == 0x9b: # FORMAT_VALUE
             # print('FORMAT_VALUE', param)
             format_string = ctx.stack.pop()
