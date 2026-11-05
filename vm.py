@@ -29,8 +29,58 @@ class VM:
         self.extended_arg = 0
         self.last_exception = None
 
-        self.global_vars = {}
-        self.native_vars = set()
+        self.global_vars = {
+            'int': int,
+            'str': str,
+            'set': set,
+            'type': type,
+            'dict': dict,
+            'list': list,
+            'bytes': bytes,
+            'tuple': tuple,
+            'range': range,
+            'len': len,
+            'min': min,
+            'max': max,
+            'hex': hex,
+            'chr': chr,
+            'ord': ord,
+            'pow': pow,
+            'abs': abs,
+            'iter': iter,
+            'next': next,
+            'sorted': sorted,
+            'reversed': reversed,
+            'enumerate': enumerate,
+            'isinstance': isinstance,
+            'AssertionError': AssertionError
+        }
+        self.native_vars = set([
+            int,
+            str,
+            set,
+            type,
+            dict,
+            list,
+            bytes,
+            tuple,
+            range,
+            len,
+            min,
+            max,
+            hex,
+            chr,
+            ord,
+            pow,
+            abs,
+            iter,
+            next,
+            sorted,
+            reversed,
+            enumerate,
+            isinstance
+        ])
+
         self.funcs = []
         self.count = 0
 
@@ -110,39 +160,53 @@ class VM:
             assert type(function_object) == types.FunctionType
             self.import_function(function_object)
 
-        self.global_vars['type'] = type
-        self.global_vars['int'] = int
-        self.global_vars['str'] = str
-        self.global_vars['bytes'] = bytes
-        self.global_vars['set'] = set
-        self.global_vars['dict'] = dict
-        self.global_vars['list'] = list
-        self.global_vars['tuple'] = tuple
-        self.global_vars['range'] = range
-        self.global_vars['len'] = len
-        self.global_vars['min'] = min
-        self.global_vars['max'] = max
-        self.global_vars['pow'] = pow
-        self.global_vars['iter'] = iter
-        self.global_vars['next'] = next
-        self.global_vars['isinstance'] = isinstance
+        #self.global_vars['int'] = int
+        #self.global_vars['str'] = str
+        #self.global_vars['set'] = set
+        #self.global_vars['type'] = type
+        #self.global_vars['dict'] = dict
+        #self.global_vars['list'] = list
+        #self.global_vars['bytes'] = bytes
+        #self.global_vars['tuple'] = tuple
+        #self.global_vars['range'] = range
+        #self.global_vars['len'] = len
+        #self.global_vars['min'] = min
+        #self.global_vars['max'] = max
+        #self.global_vars['hex'] = hex
+        #self.global_vars['chr'] = chr
+        #self.global_vars['ord'] = ord
+        #self.global_vars['pow'] = pow
+        #self.global_vars['abs'] = abs
+        #self.global_vars['iter'] = iter
+        #self.global_vars['next'] = next
+        #self.global_vars['sorted'] = sorted
+        #self.global_vars['reversed'] = reversed
+        #self.global_vars['enumerate'] = enumerate
+        #self.global_vars['isinstance'] = isinstance
         # self.global_vars['open'] = open
-        self.global_vars['AssertionError'] = AssertionError
-        self.native_vars.add(type)
-        self.native_vars.add(int)
-        self.native_vars.add(str)
-        self.native_vars.add(bytes)
-        self.native_vars.add(dict)
-        self.native_vars.add(list)
-        self.native_vars.add(tuple)
-        self.native_vars.add(range)
-        self.native_vars.add(len)
-        self.native_vars.add(min)
-        self.native_vars.add(max)
-        self.native_vars.add(pow)
-        self.native_vars.add(iter)
-        self.native_vars.add(next)
-        self.native_vars.add(isinstance)
+        #self.global_vars['AssertionError'] = AssertionError
+        #self.native_vars.add(int)
+        #self.native_vars.add(str)
+        #self.native_vars.add(type)
+        #self.native_vars.add(dict)
+        #self.native_vars.add(list)
+        #self.native_vars.add(bytes)
+        #self.native_vars.add(tuple)
+        #self.native_vars.add(range)
+        #self.native_vars.add(len)
+        #self.native_vars.add(min)
+        #self.native_vars.add(max)
+        #self.native_vars.add(hex)
+        #self.native_vars.add(chr)
+        #self.native_vars.add(ord)
+        #self.native_vars.add(pow)
+        #self.native_vars.add(abs)
+        #self.native_vars.add(iter)
+        #self.native_vars.add(next)
+        #self.native_vars.add(sorted)
+        #self.native_vars.add(reversed)
+        #self.native_vars.add(enumerate)
+        #self.native_vars.add(isinstance)
 
         assert self.code.co_argcount == len(args)
         assert self.code.co_code
@@ -539,6 +603,14 @@ class VM:
                 ctx.pc += param
             elif sys.version_info.minor == 10:
                 ctx.pc += (param+1) * 2
+
+        elif co_code[ctx.pc] == 0x6f: # JUMP_IF_FALSE_OR_POP
+            # print('JUMP_IF_FALSE_OR_POP', param)
+            if not ctx.stack[-1]:
+                ctx.pc = param * 2
+            else:
+                ctx.stack.pop()
+                ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x70: # JUMP_IF_TRUE_OR_POP
             # print('JUMP_IF_TRUE_OR_POP', param, ctx.stack)

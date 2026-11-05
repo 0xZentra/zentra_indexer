@@ -23,40 +23,40 @@ import tornado.web
 import tornado.ioloop
 import setting
 
-CHAIN_NAME='base'
-REDEEMED_EVENT_TOPIC='40dadaa36c6c2e3d7317e24757451ffb2d603d875f0ad5e92c5dd156573b1873'
-REDEEM_METHOD_ID='cef6d209'
-LAG_THRESHOLD=2000
-MIN_Q=150
+CHAIN_NAME = 'base'
+REDEEMED_EVENT_TOPIC = '40dadaa36c6c2e3d7317e24757451ffb2d603d875f0ad5e92c5dd156573b1873'
+REDEEM_METHOD_ID = 'cef6d209'
+LAG_THRESHOLD = 2000
+MIN_Q = 150
 
 if not os.path.exists('states'):
     os.makedirs('states')
-conn=rocksdb.DB('states/gazer-%s.db'%CHAIN_NAME, rocksdb.Options(create_if_missing=True))
+conn = rocksdb.DB('states/gazer-%s.db'%CHAIN_NAME, rocksdb.Options(create_if_missing=True))
 
 @dataclass
 class RPCCfg:
     name:str
     url:str
-    kind:str='free'
+    kind:str = 'free'
     archive: bool = False
-    min_h:Optional[int]=None
-    batch:int=12
+    min_h:Optional[int] = None
+    batch:int = 12
 
-FREE=[
+FREE = [
     RPCCfg(name='sepolia.base.org', url='https://sepolia.base.org', kind='free', min_h=46500000, batch=12),
-    RPCCfg(name='drpc',            url='https://base-sepolia.drpc.org', kind='free', min_h=46500000, batch=2),
-    RPCCfg(name='tenderly',        url='https://base-sepolia.gateway.tenderly.co', kind='free', min_h=46500000, batch=5),
+    RPCCfg(name='drpc',             url='https://base-sepolia.drpc.org', kind='free', min_h=46500000, batch=2),
+    RPCCfg(name='tenderly',         url='https://base-sepolia.gateway.tenderly.co', kind='free', min_h=46500000, batch=5),
 ]
 
-PAID=[
+PAID = [
 ]
 
 
-queue_lock=threading.Lock()
-work_queue=deque()
-in_queue=set()
-block_cache={}
-providers=[]
+queue_lock = threading.Lock()
+work_queue = deque()
+work_queue_set = set()
+block_cache = {}
+providers = []
 
 for config in FREE + PAID:
     try:
@@ -88,19 +88,25 @@ try:
 except Exception:
     pass
 
-assigned_from=fetch_h
+assigned_from = fetch_h
 
 def to_dict(b):
-    if isinstance(b, dict): return {k:_cv(v) for k, v in b.items()}
+    if isinstance(b, dict):
+        return {k:_cv(v) for k, v in b.items()}
     if hasattr(b, 'items') and callable(b.items):
-        try: return {k:_cv(v) for k, v in b.items()}
-        except: pass
+        try:
+            return {k:_cv(v) for k, v in b.items()}
+        except:
+            pass
     res={}
     try:
         for k in ['number', 'hash', 'parentHash', 'timestamp', 'transactions', 'gasLimit', 'gasUsed', 'difficulty', 'totalDifficulty', 'size', 'extraData', 'miner', 'nonce', 'baseFeePerGas']:
-            try: res[k]=_cv(b[k])
-            except: pass
-    except: pass
+            try:
+                res[k]=_cv(b[k])
+            except:
+                pass
+    except:
+        pass
     try:
         if isinstance(getattr(b, '__dict__', None), dict):
             for k, v in b.__dict__.items():
@@ -110,52 +116,73 @@ def to_dict(b):
     return res
 
 def _cv(v):
-    if v is None: return None
-    if type(v).__name__ == 'HexBytes' or isinstance(v, hexbytes.HexBytes): return v.hex()
-    if isinstance(v, bytes): return v.hex()
+    if v is None:
+        return None
+    if type(v).__name__ == 'HexBytes' or isinstance(v, hexbytes.HexBytes):
+        return v.hex()
+    if isinstance(v, bytes):
+        return v.hex()
     if hasattr(v, 'hex') and not isinstance(v, (dict, list, tuple, str)):
         try:
-            h=v.hex()
-            if isinstance(h, str): return h
-        except: pass
-    if isinstance(v, dict): return {k:_cv(x) for k, x in v.items()}
+            h = v.hex()
+            if isinstance(h, str):
+                return h
+        except:
+            pass
+    if isinstance(v, dict):
+        return {k:_cv(x) for k, x in v.items()}
     if hasattr(v, 'items') and callable(v.items):
-        try: return {k:_cv(x) for k, x in v.items()}
-        except: pass
-    if isinstance(v, (list, tuple)): return [_cv(x) for x in v]
-    if isinstance(v, (int, float, bool, str)): return v
+        try:
+            return {k:_cv(x) for k, x in v.items()}
+        except:
+            pass
+    if isinstance(v, (list, tuple)):
+        return [_cv(x) for x in v]
+    if isinstance(v, (int, float, bool, str)):
+        return v
     try:
         if hasattr(v, '__dict__'):
             return {k:_cv(x) for k, x in v.__dict__.items() if not k.startswith('_')}
-    except: pass
+    except:
+        pass
     return str(v)
 
 def is_eligible(p, h):
     config_p = p['cfg']
-    if config.min_h is not None and h<config.min_h: return False
-    if h<46500000 and not config.archive: return False
+    if config.min_h is not None and h < config.min_h:
+        return False
+    if h < 46500000 and not config.archive:
+        return False
     return True
 
 def push_front(hs):
     for h in reversed(hs):
-        if h in in_queue: continue
-        in_queue.add(h)
+        if h in work_queue_set:
+            continue
+        work_queue_set.add(h)
         work_queue.appendleft(h)
 
 def push_back(hs):
     for h in hs:
-        if h in in_queue: continue
-        if h in block_cache: continue
-        in_queue.add(h)
+        if h in work_queue_set:
+            continue
+        if h in block_cache:
+            continue
+        work_queue_set.add(h)
         work_queue.append(h)
 
 def enqueue_on_demand(h):
-    if h in block_cache: return
+    # print('enqueue_on_demand')
+    # if h in block_cache:
+    #     print('in cache')
+    #     return
     with queue_lock:
-        if h in in_queue: return
-        in_queue.add(h)
+        if h in work_queue_set:
+            # print('in queue')
+            return
+        work_queue_set.add(h)
         work_queue.appendleft(h)
-        print('ondemand enqueue', h)
+        # print('ondemand enqueue', h)
 
 def refill():
     global assigned_from, latest_g
@@ -165,36 +192,66 @@ def refill():
         if assigned_from > latest_g + 5:
             return
         count_refill = 0
+
         while len(work_queue) < MIN_Q and assigned_from <= latest_g and count_refill < MIN_Q * 2:
             if assigned_from in block_cache:
                 assigned_from += 1
                 count_refill += 1
                 continue
-            if assigned_from in in_queue:
+
+            if assigned_from in work_queue_set:
                 assigned_from += 1
                 count_refill += 1
                 continue
-            in_queue.add(assigned_from)
+
+            work_queue_set.add(assigned_from)
             work_queue.append(assigned_from)
             assigned_from += 1
             count_refill += 1
+
+
+def save_block(h, blk):
+    try:
+        conn.put(f'block_{h}'.encode(), json.dumps(to_dict(blk)).encode())
+    except Exception as e:
+        print('db', e)
+
+    try:
+        if isinstance(blk, (list, tuple)):
+            blk2 = blk[0]
+        else:
+            blk2 = blk
+        block_zentra_data = process_block(blk2)
+
+        try:
+            conn.put(f'zentra_{h}'.encode(), json.dumps(block_zentra_data).encode())
+        except Exception as ee:
+            print('dbz', ee)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print('db2', e)
+
 
 def fetch_one_rpc(provider_info):
     global lag, latest_g
     config = provider_info['cfg']
     web3_instance = provider_info['w']
+
     while True:
         try:
             if config.kind == 'paid' and lag < LAG_THRESHOLD:
                 time.sleep(1)
                 continue
+
             refill()
-            hs=[]
+            hs = []
             with queue_lock:
                 while len(hs) <= config.batch and work_queue:
                     h = work_queue.popleft()
                     try:
-                        in_queue.discard(h)
+                        work_queue_set.discard(h)
                     except Exception:
                         pass
                     if h in block_cache:
@@ -203,78 +260,113 @@ def fetch_one_rpc(provider_info):
             if not hs:
                 time.sleep(1)
                 continue
+
             # filter eligible for this rpc
-            take=[]
-            back=[]
+            take = []
+            back = []
             for h in hs:
                 if is_eligible(p, h):
                     take.append(h)
                 else:
                     back.append(h)
+
             if back:
                 with queue_lock:
                     for h in reversed(back):
-                        if h in in_queue: continue
-                        in_queue.add(h)
+                        if h in work_queue_set:
+                            continue
+                        work_queue_set.add(h)
                         work_queue.appendleft(h)
+
             if not take:
                 time.sleep(1)
                 continue
-            miss=list(take)
-            got={}
-            print('rpc', config.name, 'batch', len(miss), miss[0], '-', miss[-1])
+
+            # miss = list(take)
+            # got = {}
+            print('rpc', config.name, 'batch', len(take), take)
             try:
                 b = web3_instance.batch_requests()
-                for h in miss: b.add(web3_instance.eth.get_block(h, True))
-                reps=b.execute()
-                for i, h in enumerate(miss):
+                for h in take:
+                    b.add(web3_instance.eth.get_block(h, True))
+                reps = b.execute()
+                for i, h in enumerate(take):
                     if i < len(reps):
-                        blk=reps[i]
+                        blk = reps[i]
                         if blk is not None and not isinstance(blk, Exception):
-                            got[h]=blk
+                            # print('fetched block', h, 'height', cur_h)
+                            if h >= cur_h:
+                                block_cache[h] = blk
+                            else:
+                                save_block(h, blk)
+                p['backoff'] = 1.0
+
             except Exception as e:
                 print('be', config.name, e)
-            # fallback missing
-            for h in miss:
-                if h in got: continue
-                try:
-                    blk = web3_instance.eth.get_block(h, True)
-                    if blk: got[h]=blk
-                except Exception as ee:
-                    print('ie', config.name, h, ee)
-            # store
-            for h, blk in got.items():
-                block_cache[h]=blk
-            # failed
-            failed=[h for h in miss if h not in got]
-            if failed:
                 with queue_lock:
-                    for h in reversed(failed):
-                        if h in in_queue: continue
-                        if h in block_cache: continue
-                        in_queue.add(h)
+                    for h in reversed(take):
+                        if h in work_queue_set:
+                            continue
+                        if h in block_cache:
+                            continue
+                        work_queue_set.add(h)
                         work_queue.appendleft(h)
-                p['backoff']=min(p['backoff']*2.0, 30.0)
-                time.sleep(p['backoff'])
-            else:
-                p['backoff']=1.0
-                time.sleep(1.0)
+
+                p['backoff'] = min(p['backoff']*2.0, 30.0)
+
+            time.sleep(p['backoff'])
+
+
+            # # fallback missing
+            # for h in miss:
+            #     if h in got:
+            #         continue
+
+            #     try:
+            #         blk = web3_instance.eth.get_block(h, True)
+            #         if blk:
+            #             got[h] = blk
+            #     except Exception as ee:
+            #         print('ie', config.name, h, ee)
+
+
+            # # failed
+            # failed = [h for h in miss if h not in got]
+            # if failed:
+            #     with queue_lock:
+            #         for h in reversed(failed):
+            #             if h in work_queue_set:
+            #                 continue
+            #             if h in block_cache:
+            #                 continue
+            #             work_queue_set.add(h)
+            #             work_queue.appendleft(h)
+
+            #     p['backoff'] = min(p['backoff']*2.0, 30.0)
+            #     time.sleep(p['backoff'])
+            # else:
+            #     p['backoff'] = 1.0
+            #     time.sleep(1.0)
+
         except Exception as e:
             print('rpe', config.name, e)
             time.sleep(2)
 
 for p in providers:
-    t=threading.Thread(target=fetch_one_rpc, args=[p], daemon=True)
+    t = threading.Thread(target=fetch_one_rpc, args=[p], daemon=True)
     t.start()
 
 def get_provider(h=None):
     if h is not None and h<46500000:
         for p in providers:
-            if p['cfg'].archive and is_eligible(p, h): return p
+            if p['cfg'].archive and is_eligible(p, h):
+                return p
     for p in providers:
-        if p['cfg'].kind == 'free' and is_eligible(p, h if h is not None else 10**19): return p
+        if p['cfg'].kind == 'free' and is_eligible(p, h if h is not None else 10**19):
+            return p
     for p in providers:
-        if is_eligible(p, h if h is not None else 10**19): return p
+        if is_eligible(p, h if h is not None else 10**19):
+            return p
     return providers[0] if providers else None
 
 def process_block(block):
@@ -292,6 +384,7 @@ def process_block(block):
             block_height_num = getattr(block, 'number')
     except Exception:
         block_height_num = 0
+
     provider_info_pb = get_provider(block_height_num)
     if provider_info_pb and providers:
         web3_instance_pb = provider_info_pb['w']
@@ -299,9 +392,13 @@ def process_block(block):
         web3_instance_pb = providers[0]['w']
     else:
         web3_instance_pb = None
+
     h = block_height_num
-    try: bnum=h
-    except: bnum=0
+    try:
+        bnum = h
+    except:
+        bnum = 0
+
     try:
         if isinstance(block, dict):
             bhv=block.get('hash')
@@ -328,9 +425,13 @@ def process_block(block):
     except Exception:
         bts=0
     blk={'txs':[], 'block_number':int(bnum), 'block_hash':bh, 'chain':CHAIN_NAME, 'timestamp':bts}
-    try: txs=block.transactions if hasattr(block, 'transactions') else (block.get('transactions') if isinstance(block, dict) else [])
-    except: txs=[]
+    try:
+        txs=block.transactions if hasattr(block, 'transactions') else (block.get('transactions') if isinstance(block, dict) else [])
+    except:
+        txs=[]
     ti=0
+    if not txs:
+        txs = []
     for tx in txs:
         try:
             to=tx['to']
@@ -354,17 +455,20 @@ def process_block(block):
                     tr += 1
                     time.sleep(0.3)
             try:
-                tx=txcur
-                thx=tx['hash'].hex() if hasattr(tx['hash'], 'hex') else str(tx['hash'])
-                info={'sender':str(tx['from']).lower(), 'nonce':int(tx['nonce']), 'tx_index':ti, 'tx_hash':thx}
-                inp=tx['input']
-                if isinstance(inp, bytes): inp=inp.hex()
-                inpj=json.loads(inp)
+                tx = txcur
+                thx = tx['hash'].hex() if hasattr(tx['hash'], 'hex') else str(tx['hash'])
+                info = {'sender': str(tx['from']).lower(), 'nonce':int(tx['nonce']), 'tx_index':ti, 'tx_hash':thx}
+                inp = tx['input']
+                inpj = json.loads(inp)
                 if isinstance(inpj, list):
                     for a in inpj:
-                        if isinstance(a, dict) and a.get('p') == 'zentest3': blk['txs'].append([info, a])
-                elif isinstance(inpj, dict) and inpj.get('p') == 'zentest3': blk['txs'].append([info, inpj])
-            except Exception as e: print('txe', e)
+                        if isinstance(a, dict) and a.get('p') == 'zentest3':
+                            blk['txs'].append([info, a])
+                elif isinstance(inpj, dict) and inpj.get('p') == 'zentest3':
+                    blk['txs'].append([info, inpj])
+            except Exception as e:
+                print('txe', e)
+
         elif to == setting.METAMASK_GAS_PAYER.lower() and block_height_num >= setting.METAMASK_GAS_SPONSOR_HEIGHT:
             try:
                 print('gs', tx['hash'].hex() if hasattr(tx['hash'], 'hex') else tx['hash'])
@@ -441,32 +545,30 @@ def main():
         print('me', e)
         tornado.ioloop.IOLoop.instance().call_later(5, main)
         return
+
     print(cur_h, latest_g, lag, 'q', len(work_queue))
     if cur_h <= latest_g:
         while True:
-            blk=block_cache.get(cur_h)
+            blk = block_cache.get(cur_h)
             if blk:
-                try: del block_cache[cur_h]
-                except: pass
-                try: conn.put(f'block_{cur_h}'.encode(), json.dumps(to_dict(blk)).encode())
-                except Exception as e: print('db', e)
                 try:
-                    if isinstance(blk, (list, tuple)):
-                        blk2 = blk[0]
-                    else:
-                        blk2 = blk
-                    block_zentra = process_block(blk2)
-                    conn.put(f'zentra_{cur_h}'.encode(), json.dumps(block_zentra).encode())
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    print('db2', e)
-                try: conn.put(b'height', str(cur_h).encode())
-                except: pass
+                    del block_cache[cur_h]
+                except:
+                    pass
+
+                save_block(cur_h, blk)
+
+                try:
+                    conn.put(b'height', str(cur_h).encode())
+                except:
+                    pass
                 cur_h+=1
             else: break
-    if cur_h >= latest_g: tornado.ioloop.IOLoop.instance().call_later(7, main)
-    else: tornado.ioloop.IOLoop.instance().call_later(1, main)
+
+    if cur_h >= latest_g:
+        tornado.ioloop.IOLoop.instance().call_later(7, main)
+    else:
+        tornado.ioloop.IOLoop.instance().call_later(1, main)
 
 class BlockHandler(tornado.web.RequestHandler):
     def get(self, h):
@@ -476,50 +578,58 @@ class BlockHandler(tornado.web.RequestHandler):
         if v is None:
             if hh not in block_cache:
                 enqueue_on_demand(hh)
-            v = conn.get(f'block_{hh}'.encode())
+            # v = conn.get(f'block_{hh}'.encode())
         self.set_header("Content-Type", "application/json")
         self.finish(v if v is not None else {})
 
 
 class ZentraHandler(tornado.web.RequestHandler):
-    def get(self, h):
-        print('indexer req zentra', h)
-        hh = int(h)
-        v = conn.get(f'zentra_{hh}'.encode())
-        if v is None:
-            if hh not in block_cache:
-                enqueue_on_demand(hh)
-            # try process if available
-            blk=block_cache.get(hh)
-            if blk and v is None:
-                try:
-                    if isinstance(blk, (list, tuple)): blk2=blk[0]
-                    else: blk2=blk
-                    b2=process_block(blk2)
-                    try: del block_cache[hh]
-                    except: pass
-                    try: conn.put(f'block_{hh}'.encode(), json.dumps(to_dict(blk2)).encode())
-                    except: pass
-                    try: conn.put(f'zentra_{hh}'.encode(), json.dumps(b2).encode())
-                    except Exception as ee:
-                        import traceback
-                        traceback.print_exc()
-                        print('oz', ee)
-                    try: conn.put(b'height', str(max(cur_h, hh+1)).encode())
-                    except: pass
-                    v=conn.get(f'zentra_{hh}'.encode())
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    print('onreq proc err', e)
+    def get(self, block_height):
+        # Get zentra_<height> from RocksDB and return as JSON, or 404
+        key = f'zentra_{block_height}'.encode()
+        value = conn.get(key)
+
         self.set_header("Content-Type", "application/json")
-        self.finish(v if v is not None else {})
+        if value:
+            value_json = json.loads(value)
+        if value is None or value_json['block_hash'] is None or value_json['block_hash'] == "":
+            # print('blockhash is ', value_json['block_hash'], 'block', block_height)
+            height_bytes = conn.get(b'height')
+            if height_bytes is not None:
+                try:
+                    height = int(height_bytes.decode('utf-8'))
+                except Exception:
+                    height = cur_h
+            else:
+                height = cur_h
+            if int(block_height) < height:
+                if block_height not in block_cache:
+                    enqueue_on_demand(int(block_height))
+            self.finish({})
+            return
+        self.finish(value)
+
+
+class HeightHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header("Content-Type", "application/json")
+        height_bytes = conn.get(b'height')
+        if height_bytes is not None:
+            try:
+                height = int(height_bytes.decode('utf-8'))
+            except Exception:
+                height = cur_h
+        else:
+            height = cur_h
+        self.finish(json.dumps({'height': height}))
+
 
 class App(tornado.web.Application):
     def __init__(self):
         tornado.web.Application.__init__(self, [
             (r"/block/([0-9]+)", BlockHandler),
-            (r"/zentra/([0-9]+)", ZentraHandler)
+            (r"/zentra/([0-9]+)", ZentraHandler),
+            (r"/height", HeightHandler)
         ], debug=True)
 
 if __name__ == '__main__':

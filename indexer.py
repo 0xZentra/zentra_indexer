@@ -1395,16 +1395,38 @@ async def fetch_gazer():
         response = await http_client.fetch(f'{setting.gazers[setting.chain]}/zentra/{height}')
     except Exception as e:
         print('Error fetching gazer:', e)
-        tornado.ioloop.IOLoop.instance().call_later(1, fetch_gazer)
+        tornado.ioloop.IOLoop.instance().call_later(2, fetch_gazer)
         return
 
-    blk = json.loads(response.body)
-    if not blk:
-        tornado.ioloop.IOLoop.instance().call_later(1, fetch_gazer)
+    try:
+        blk = json.loads(response.body)
+    except Exception as e:
+        print('gazer json err', e)
+        tornado.ioloop.IOLoop.instance().call_later(2, fetch_gazer)
+        return
+    if not blk or not isinstance(blk, dict):
+        tornado.ioloop.IOLoop.instance().call_later(2, fetch_gazer)
+        return
+    try:
+        if not blk.get('block_hash'):
+            print('bad block_hash for', height)
+            tornado.ioloop.IOLoop.instance().call_later(2, fetch_gazer)
+            return
+    except Exception:
+        tornado.ioloop.IOLoop.instance().call_later(2, fetch_gazer)
         return
 
-    process_block(blk)
-    height = blk['block_number'] + 1
+    try:
+        process_block(blk)
+    except Exception as e:
+        print('process_block err', e)
+        tornado.ioloop.IOLoop.instance().call_later(2, fetch_gazer)
+        return
+    try:
+        height = blk['block_number'] + 1
+    except Exception:
+        tornado.ioloop.IOLoop.instance().call_later(2, fetch_gazer)
+        return
     tornado.ioloop.IOLoop.instance().add_callback(fetch_gazer)
 
 
