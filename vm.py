@@ -792,12 +792,14 @@ class VM:
             values = ctx.stack[-param:]
             # print('CALL_FUNCTION_KW', keys, values)
             params = values[:-len(keys)]
-            values = values[len(keys)-1:]
             # print('CALL_FUNCTION_KW params', params)
             ctx.stack = ctx.stack[:-param]
             obj = ctx.stack.pop()
             # print('CALL_FUNCTION_KW', obj)
             # print('CALL_FUNCTION_KW', dir(obj))
+            values = values[-len(keys):]
+            # print('CALL_FUNCTION_KW', keys, values)
+            # print('CALL_FUNCTION_KW', dict(zip(keys, values)))
             val = obj(*params, **dict(zip(keys, values)))
             ctx.stack.append(val)
             # print('CALL_FUNCTION_KW', val)
