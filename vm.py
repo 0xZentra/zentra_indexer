@@ -150,7 +150,7 @@ class VM:
 
         if func.__defaults__:
             # print(-(func.__code__.co_argcount - len(func.__defaults__)))
-            varnames_defaluts = func.__code__.co_varnames[-(func.__code__.co_argcount - len(func.__defaults__)):]
+            varnames_defaluts = func.__code__.co_varnames[(func.__code__.co_argcount - len(func.__defaults__)):]
             # print(varnames_defaluts)
             for index, varname in enumerate(varnames_defaluts):
                 if varname not in ctx.local_vars:
