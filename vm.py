@@ -120,7 +120,7 @@ class VM:
 
         self.code = src
 
-    def invoke(self, func, args):
+    def invoke(self, func, args, kargs={}):
         # print(func, args)
         # dis.dis(func.__code__.co_code)
         if type(func) == type or func in self.native_vars:
@@ -155,6 +155,7 @@ class VM:
             for index, varname in enumerate(varnames_defaluts):
                 if varname not in ctx.local_vars:
                     ctx.local_vars[varname] = func.__defaults__[index]
+        ctx.local_vars.update(kargs)
 
         pc = -1
         while pc != ctx.pc:
@@ -794,15 +795,16 @@ class VM:
             params = values[:-len(keys)]
             # print('CALL_FUNCTION_KW params', params)
             ctx.stack = ctx.stack[:-param]
-            obj = ctx.stack.pop()
-            # print('CALL_FUNCTION_KW', obj)
-            # print('CALL_FUNCTION_KW', dir(obj))
+            func = ctx.stack.pop()
+            # print('CALL_FUNCTION_KW', func)
+            # print('CALL_FUNCTION_KW', dir(func))
             values = values[-len(keys):]
             # print('CALL_FUNCTION_KW', keys, values)
             # print('CALL_FUNCTION_KW', dict(zip(keys, values)))
-            val = obj(*params, **dict(zip(keys, values)))
-            ctx.stack.append(val)
-            # print('CALL_FUNCTION_KW', val)
+            # result = func(*params, **dict(zip(keys, values)))
+            result = self.invoke(func, params, zip(keys, values))
+            ctx.stack.append(result)
+            # print('CALL_FUNCTION_KW', result)
             ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x8e: # CALL_FUNCTION_EX
