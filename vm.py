@@ -10,12 +10,14 @@ assert sys.version_info.major == 3
 SOFT_LIMIT = 200000000
 
 class Context:
-    def __init__(self, code, args):
+    def __init__(self, code, args, closure = ()):
         self.code = code
         self.pc = 0
         self.stack = []
         self.blocks = []
         self.local_vars = {}
+        self.closure = closure
+        self.cells = {}
 
         for i, v in enumerate(args):
             self.local_vars[self.code.co_varnames[i]] = v
@@ -120,6 +122,15 @@ class VM:
 
         self.code = src
 
+    def _closure_cell(self, ctx, arg):
+        cellvars = ctx.code.co_cellvars
+        if arg < len(cellvars):
+            name = cellvars[arg]
+            if name not in ctx.cells:
+                ctx.cells[name] = types.CellType(None)
+            return ctx.cells[name]
+        return ctx.closure[arg - len(cellvars)]
+
     def invoke(self, func, args, kargs={}):
         # print(func, args)
         # dis.dis(func.__code__.co_code)
@@ -146,7 +157,7 @@ class VM:
         # print(dir(func))
         # assert func.__code__.co_argcount == len(args)
         assert func.__code__.co_code
-        ctx = Context(func.__code__, args)
+        ctx = Context(func.__code__, args, getattr(func, '__closure__', None) or ())
 
         if func.__defaults__:
             # print(-(func.__code__.co_argcount - len(func.__defaults__)))
@@ -258,12 +269,15 @@ class VM:
                 self._record_exception(ctx, e)
                 raise
             self.count += 1
+            if self.count % 100000 == 99999:
+                print('Steps:', self.count)
             if self.count >= SOFT_LIMIT:
                 print('SOFT LIMIT', pc)
                 return False
             if r is not None:
+                print('End step count', self.count)
                 return True
-        print('End at PC', pc)
+        print('End at PC', pc, 'step count', self.count)
         return True
 
     def step(self, ctx):
@@ -748,7 +762,10 @@ class VM:
             # print('MAKE_FUNCTION', param)
             name = ctx.stack.pop()
             code = ctx.stack.pop()
-            func = types.FunctionType(code, self.global_vars, name)
+            closure = None
+            if param & 0x08:
+                closure = tuple(ctx.stack.pop())
+            func = types.FunctionType(code, self.global_vars, name, None, closure)
             ctx.stack.append(func)
             print('MAKE_FUNCTION', name)
             self.funcs.append(name)
@@ -772,20 +789,25 @@ class VM:
                 ctx.stack.append(slice(first, second, third))
             ctx.pc += 2
 
-        # elif co_code[ctx.pc] == 0x86: # JUMP_BACKWARD_NO_INTERRUPT
-        #     pass
-        # elif co_code[ctx.pc] == 0x87: # MAKE_CELL
-        #     pass
-        # elif co_code[ctx.pc] == 0x88: # LOAD_CLOSURE
-        #     pass
-        # elif co_code[ctx.pc] == 0x89: # LOAD_DEREF
-        #     pass
-        # elif co_code[ctx.pc] == 0x8a: # STORE_DEREF
-        #     pass
-        # elif co_code[ctx.pc] == 0x8b: # DELETE_DEREF
-        #     pass
-        # elif co_code[ctx.pc] == 0x8c: # JUMP_BACKWARD
-        #     pass
+        elif co_code[ctx.pc] == 0x87: # LOAD_CLOSURE
+            cell = self._closure_cell(ctx, param)
+            ctx.stack.append(cell)
+            ctx.pc += 2
+
+        elif co_code[ctx.pc] == 0x88: # LOAD_DEREF
+            cell = self._closure_cell(ctx, param)
+            ctx.stack.append(cell.cell_contents)
+            ctx.pc += 2
+
+        elif co_code[ctx.pc] == 0x89: # STORE_DEREF
+            cell = self._closure_cell(ctx, param)
+            cell.cell_contents = ctx.stack.pop()
+            ctx.pc += 2
+
+        elif co_code[ctx.pc] == 0x8a: # DELETE_DEREF
+            cell = self._closure_cell(ctx, param)
+            cell.cell_contents = None
+            ctx.pc += 2
 
         elif co_code[ctx.pc] == 0x8d: # CALL_FUNCTION_KW
             # print('CALL_FUNCTION_KW', ctx.stack, param)
@@ -922,6 +944,10 @@ class VM:
             obj = ctx.stack.pop()
             ctx.stack[-param].extend(obj)
             ctx.pc += 2
+
+        else:
+            raise AssertionError('vm: unimplemented opcode 0x%02x %s in %s at pc %d' % (
+                co_code[ctx.pc], opcode.opname[co_code[ctx.pc]], ctx.code.co_name, ctx.pc))
 
         # print('stack', ctx.stack)
         # print('---')
